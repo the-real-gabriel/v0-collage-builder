@@ -3,7 +3,7 @@ import { getRandomColor, calculateCellDimensions, isValidImageUrl } from "@/util
 
 import type React from "react"
 
-import { useState, useCallback, useEffect, useRef, forwardRef, useImperativeHandle } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { DndProvider } from "react-dnd"
 import { HTML5Backend } from "react-dnd-html5-backend"
 import { Box } from "@/components/box"
@@ -67,8 +67,6 @@ interface NavigationProps {
   }
   onAddImages: (files: FileList) => void
   emptyCount: number
-  onSave?: () => Promise<void>
-  collageTitle?: string
 }
 
 // Interface for panning state
@@ -77,30 +75,7 @@ interface PanPosition {
   y: number
 }
 
-// Define the GridEditorHandle interface for the ref
-export interface GridEditorHandle {
-  // State getters
-  getRows: () => number
-  getColumns: () => number
-  getGridWidth: () => number
-  getGridHeight: () => number
-  getGridGap: () => number
-  getCornerRadius: () => number
-  getBoxes: () => BoxItem[]
-  getTrayImages: () => Array<{ id: string; url: string; inUse: boolean; content?: string }>
-
-  // State setters
-  setRows: (rows: number) => void
-  setColumns: (columns: number) => void
-  setGridWidth: (width: number) => void
-  setGridHeight: (height: number) => void
-  setGridGap: (gap: number) => void
-  setCornerRadius: (radius: number) => void
-  setBoxes: (boxes: BoxItem[]) => void
-  setTrayImages: (images: Array<{ id: string; url: string; inUse: boolean; content?: string }>) => void
-}
-
-const GridEditor = forwardRef<GridEditorHandle, {}>(function GridEditor(props, ref) {
+export default function GridEditor() {
   const [rows, setRows] = useState(2)
   const [columns, setColumns] = useState(2)
   const [gridWidth, setGridWidth] = useState(800)
@@ -134,36 +109,6 @@ const GridEditor = forwardRef<GridEditorHandle, {}>(function GridEditor(props, r
   const gridWrapperRef = useRef<HTMLDivElement>(null)
   const canvasContainerRef = useRef<HTMLDivElement>(null)
   const lastAppliedTemplate = useRef<LayoutTemplate | null>(null)
-
-  // Expose the methods via useImperativeHandle
-  useImperativeHandle(
-    ref,
-    () => ({
-      // State getters
-      getRows: () => rows,
-      getColumns: () => columns,
-      getGridWidth: () => gridWidth,
-      getGridHeight: () => gridHeight,
-      getGridGap: () => gridGap,
-      getCornerRadius: () => cornerRadius,
-      getBoxes: () => boxes,
-      getTrayImages: () => trayImages,
-
-      // State setters
-      setRows,
-      setColumns,
-      setGridWidth,
-      setGridHeight,
-      setGridGap,
-      setCornerRadius,
-      setBoxes,
-      setTrayImages,
-    }),
-    [rows, columns, gridWidth, gridHeight, gridGap, cornerRadius, boxes, trayImages],
-  )
-
-  // The rest of the GridEditor component remains unchanged
-  // ... [rest of the existing component code]
 
   // Calculate and update scale factor when grid dimensions or viewport size changes
   useEffect(() => {
@@ -2295,6 +2240,4 @@ const GridEditor = forwardRef<GridEditorHandle, {}>(function GridEditor(props, r
       </div>
     </DndProvider>
   )
-})
-
-export default GridEditor
+}

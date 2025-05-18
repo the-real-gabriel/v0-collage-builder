@@ -3,9 +3,7 @@
 import type React from "react"
 
 import { useState, useRef } from "react"
-import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { useAuth } from "@/contexts/auth-context"
 import {
   CustomDialog,
   CustomDialogContent,
@@ -13,7 +11,7 @@ import {
   CustomDialogTitle,
   CustomDialogTrigger,
 } from "@/components/custom-dialog"
-import { Menu, X, Download, Upload, HelpCircle, ArrowLeft, Save } from "lucide-react"
+import { Menu, X, Download, Upload, HelpCircle } from "lucide-react"
 import { Instructions } from "@/instructions"
 import { ExportDialog } from "@/export-dialog"
 
@@ -29,23 +27,11 @@ interface NavigationProps {
   }
   onAddImages: (files: FileList) => void
   emptyCount: number
-  onSave?: () => Promise<void>
-  collageTitle?: string
 }
 
-export function Navigation({
-  gridRef,
-  gridData,
-  onAddImages,
-  emptyCount,
-  onSave,
-  collageTitle = "Untitled Collage",
-}: NavigationProps) {
+export function Navigation({ gridRef, gridData, onAddImages, emptyCount }: NavigationProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isExportOpen, setIsExportOpen] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
-  const { user } = useAuth()
-  const router = useRouter()
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -61,46 +47,18 @@ export function Navigation({
     }
   }
 
-  const handleSave = async () => {
-    if (onSave) {
-      setIsSaving(true)
-      try {
-        await onSave()
-      } finally {
-        setIsSaving(false)
-      }
-    }
-  }
-
   return (
     <header className="bg-white border-b border-gray-100 fixed top-0 left-0 right-0 z-50 w-full shadow-subtle">
       <div className="w-full px-4 sm:px-6">
         <div className="flex items-center justify-between h-16">
-          {/* Back button and title */}
+          {/* Logo and title */}
           <div className="flex items-center">
-            <Button variant="ghost" size="icon" className="mr-2" onClick={() => router.push("/dashboard")}>
-              <ArrowLeft className="h-4 w-4" />
-              <span className="sr-only">Back to Dashboard</span>
-            </Button>
-            <h1 className="text-xl font-medium typography-heading">{collageTitle}</h1>
-            <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-black/5 text-black/60">Editor</span>
+            <h1 className="text-xl font-medium typography-heading">Collage Builder</h1>
+            <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-black/5 text-black/60">Beta</span>
           </div>
 
           {/* Desktop navigation */}
           <nav className="hidden md:flex items-center space-x-3">
-            {user && onSave && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex items-center gap-2 btn-subtle h-8"
-                onClick={handleSave}
-                disabled={isSaving}
-              >
-                <Save className="h-3.5 w-3.5" />
-                <span>{isSaving ? "Saving..." : "Save"}</span>
-              </Button>
-            )}
-
             <Button
               variant="outline"
               size="sm"
@@ -159,22 +117,6 @@ export function Navigation({
         {/* Mobile menu */}
         {isMenuOpen && (
           <div className="md:hidden py-3 space-y-1 border-t border-gray-100">
-            {user && onSave && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full justify-start btn-ghost"
-                onClick={() => {
-                  handleSave()
-                  setIsMenuOpen(false)
-                }}
-                disabled={isSaving}
-              >
-                <Save className="h-3.5 w-3.5 mr-2" />
-                {isSaving ? "Saving..." : "Save"}
-              </Button>
-            )}
-
             <Button
               variant="ghost"
               size="sm"
