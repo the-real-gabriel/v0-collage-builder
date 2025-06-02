@@ -129,7 +129,10 @@ export function useCollageData() {
         .eq("id", collageId)
         .single()
 
-      if (collageError) throw collageError
+      if (collageError) {
+        console.error("Collage error:", collageError)
+        throw collageError
+      }
 
       // Get boxes for this collage
       const { data: boxes, error: boxesError } = await supabase
@@ -138,7 +141,10 @@ export function useCollageData() {
         .eq("collage_id", collageId)
         .order("position", { ascending: true })
 
-      if (boxesError) throw boxesError
+      if (boxesError) {
+        console.error("Boxes error:", boxesError)
+        throw boxesError
+      }
 
       return {
         id: collage.id,
@@ -152,7 +158,7 @@ export function useCollageData() {
         gridGap: collage.grid_gap,
         cornerRadius: collage.corner_radius,
         isPublic: collage.is_public,
-        boxes: boxes.map((box) => ({
+        boxes: (boxes || []).map((box) => ({
           id: box.id,
           position: box.position,
           rowSpan: box.row_span,
