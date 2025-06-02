@@ -1,8 +1,5 @@
 "use client"
-import { getRandomColor, calculateCellDimensions } from "@/utils/grid-utils"
-
-import type React from "react"
-
+import { getRandomColor, calculateCellDimensions } from "@/utils/grid-utils" // Added calculateAspectRatio
 import { useState, useCallback, useEffect, useRef } from "react"
 import { DndProvider } from "react-dnd"
 import { HTML5Backend } from "react-dnd-html5-backend"
@@ -10,200 +7,82 @@ import { Box } from "@/components/box"
 import { ImageUploader } from "@/image-uploader"
 import { toast } from "@/components/ui/use-toast"
 import { PhotoTray } from "@/components/photo-tray"
-import { TOAST_DURATION } from "@/constants"
-
-// Import the new components
+import { TOAST_DURATION, MAX_COLUMNS, MIN_COLUMNS, MAX_ROWS, MIN_ROWS, MAX_DIMENSION, MIN_DIMENSION } from "@/constants" // Import new constants
 import { Topbar } from "@/components/topbar"
 import { Sidebar } from "@/components/sidebar"
-
-// Add Supabase specific imports
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
-import type { Project, ProjectImage, GridConfig, BoxItem as AppBoxItem } from "@/lib/types" // Use AppBoxItem to avoid naming conflict
-// Box interface
-interface BoxItem {
-  id: string
-  content: string
-  color: string
-  imageUrl: string
-  rowSpan: number
-  colSpan: number
-  position: number // Position in the grid
+import type { Project, ProjectImage, GridConfig, BoxItem as AppBoxItem } from "@/lib/types"
+import type { LayoutTemplate } from "@/layout-templates" // Import LayoutTemplate type
+import type { SizePreset } from "@/size-presets" // Import SizePreset type
+
+// Box interface (client-side representation, might differ from DB schema slightly)
+interface BoxItem extends AppBoxItem {
+  // Add any client-specific fields if needed, e.g., isDragging
 }
 
-// Template placeholder interface
-interface TemplatePlaceholder {
-  position: number
-  rowSpan: number
-  colSpan: number
-  templateId?: string // Optional template ID
-  templateName?: string // Optional template name
-}
-
-// Auto place state interface for tracking changes
-interface AutoPlaceState {
-  trayCount: number
-  emptyCount: number
-  unusedCount: number
-  lastPlacedCount: number
-}
-
-// Update the NavigationProps interface to include the onAddImages handler
-interface NavigationProps {
-  gridRef: React.RefObject<HTMLDivElement>
-  gridData: {
-    rows: number
-    columns: number
-    gridWidth: number
-    gridHeight: number
-    gridGap: number
-    boxes: any[]
-  }
-  onAddImages: (files: FileList) => void
-  emptyCount: number
-}
-
-// Interface for panning state
-interface PanPosition {
-  x: number
-  y: number
-}
-
-// Props for the integrated GridEditor
 interface GridEditorProps {
   initialProject: Project
   initialImages: ProjectImage[]
 }
 
-// Redefine BoxItem if it's different from ProjectImage or needs client-side fields
-// For now, let's assume AppBoxItem from lib/types.ts is sufficient or can be adapted.
-
 export default function GridEditorComponent({ initialProject, initialImages }: GridEditorProps) {
   const supabase = getSupabaseBrowserClient()
 
-  // Initialize state from props
   const [project, setProject] = useState<Project>(initialProject)
   const [gridConfig, setGridConfig] = useState<GridConfig>(initialProject.grid_config)
 
-  // Transform initialImages to include public URLs and fit BoxItem structure
-  const [boxes, setBoxes] = useState<AppBoxItem[]>(
-    () =>
-      initialImages
-        .map((img) => {
-          let publicURL = ""
-          if (img.storage_path) {
-            const { data } = supabase.storage.from("project-files").getPublicUrl(img.storage_path)
-            publicURL = data?.publicUrl || "/placeholder.svg?text=Error"
-          }
-          return {
-            ...img,
-            id: img.id, // Ensure BoxItem uses the DB id
-            imageUrl: publicURL,
-            // Ensure all fields required by Box component are mapped
-            content: img.content || `Image ${img.id.slice(0, 5)}`,
-            color: img.color || getRandomColor(), // Or a default
-            rowSpan: img.row_span || 1,
-            colSpan: img.col_span || 1,
-            position: img.position === null || img.position === undefined ? -1 : img.position, // Handle null position (tray)
-          }
-        })
-        .filter((box) => box.position !== -1), // Only placed images on the grid
-  )
-
-  const [trayImages, setTrayImages] = useState<AppBoxItem[]>(() =>
-    initialImages.map((img) => {
+  const transformDbImageToBoxItem = useCallback(
+    (dbImage: ProjectImage | AppBoxItem, isTrayImage = false): AppBoxItem => {
       let publicURL = ""
-      if (img.storage_path) {
-        const { data } = supabase.storage.from("project-files").getPublicUrl(img.storage_path)
+      if (dbImage.storage_path) {
+        const { data } = supabase.storage.from("project-files").getPublicUrl(dbImage.storage_path)
         publicURL = data?.publicUrl || "/placeholder.svg?text=Error"
       }
       return {
-        ...img,
-        id: img.id,
+        ...dbImage,
+        id: dbImage.id,
         imageUrl: publicURL,
-        content: img.content || `Image ${img.id.slice(0, 5)}`,
-        inUse: img.position !== null && img.position !== undefined, // Mark as inUse if placed
+        content: dbImage.content || `Image ${dbImage.id.slice(0, 5)}`,
+        color: dbImage.color || getRandomColor(),
+        row_span: dbImage.row_span || 1,
+        col_span: dbImage.col_span || 1,
+        position: isTrayImage || dbImage.position === null || dbImage.position === undefined ? -1 : dbImage.position,
+        inUse: !isTrayImage && dbImage.position !== null && dbImage.position !== undefined && dbImage.position !== -1,
       }
-    }),
+    },
+    [supabase.storage],
   )
 
-  // Most of the state from original GridEditor (rows, columns, gridWidth, etc.)
-  // will now be derived from `gridConfig` or `project` state.
-  const { rows, columns, width: gridWidth, height: gridHeight, gap: gridGap, cornerRadius = 0 } = gridConfig
+  const [boxes, setBoxes] = useState<AppBoxItem[]>(() =>
+    initialImages
+      .filter((img) => img.position !== null && img.position !== undefined && img.position !== -1)
+      .map((img) => transformDbImageToBoxItem(img, false)),
+  )
+
+  const [trayImages, setTrayImages] = useState<AppBoxItem[]>(
+    () => initialImages.map((img) => transformDbImageToBoxItem(img, true)), // All images initially, inUse determined by position
+  )
 
   const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null)
   const [isUploaderOpen, setIsUploaderOpen] = useState(false)
   const [isMultiUpload, setIsMultiUpload] = useState(false)
-  const [uploadPosition, setUploadPosition] = useState<number | null>(null) // For adding to specific empty cell
+  const [uploadTargetPosition, setUploadTargetPosition] = useState<number | null>(null)
   const [scale, setScale] = useState(1)
   const [manualZoom, setManualZoom] = useState<number | null>(null)
-  // ... other UI-specific states like panPosition, isSpacePressed etc. can remain.
   const [panPosition, setPanPosition] = useState({ x: 0, y: 0 })
-  const [initialPanPosition, setInitialPanPosition] = useState({ x: 0, y: 0 })
-  const [isPanning, setIsPanning] = useState(false)
-  const [panStart, setPanStart] = useState({ x: 0, y: 0 })
-  const [isSpacePressed, setIsSpacePressed] = useState(false)
-  const [cursorOverGrid, setCursorOverGrid] = useState(false)
-  const [canPan, setCanPan] = useState(false)
   const [widthInputValue, setWidthInputValue] = useState(gridConfig.width.toString())
   const [heightInputValue, setHeightInputValue] = useState(gridConfig.height.toString())
-  const [templatePlaceholders, setTemplatePlaceholders] = useState<any[]>([]) // Define type for placeholders
 
   const gridContainerRef = useRef<HTMLDivElement>(null)
   const gridWrapperRef = useRef<HTMLDivElement>(null)
   const canvasContainerRef = useRef<HTMLDivElement>(null)
-  const lastAppliedTemplate = useRef<any | null>(null)
 
-  const addImageToDbAndTray = async (file: File, tempUrl: string) => {
-    const { data: user } = await supabase.auth.getUser()
-    if (!user.user) throw new Error("User not authenticated")
+  // Sync input values when gridConfig dimensions change programmatically
+  useEffect(() => {
+    setWidthInputValue(gridConfig.width.toString())
+    setHeightInputValue(gridConfig.height.toString())
+  }, [gridConfig.width, gridConfig.height])
 
-    const fileName = `${crypto.randomUUID()}-${file.name}`
-    const filePath = `${user.user.id}/${project.id}/images/${fileName}`
-
-    const { error: uploadError } = await supabase.storage.from("project-files").upload(filePath, file)
-
-    if (uploadError) {
-      toast({ title: "Upload failed", description: uploadError.message, variant: "destructive" })
-      return null
-    }
-
-    const { data: newImage, error: dbError } = await supabase
-      .from("project_images")
-      .insert({
-        project_id: project.id,
-        storage_path: filePath,
-        original_filename: file.name,
-        file_size: file.size,
-        mime_type: file.type,
-        content: file.name,
-        // position, row_span, col_span are null for tray images
-      })
-      .select()
-      .single()
-
-    if (dbError || !newImage) {
-      toast({ title: "Failed to save image metadata", description: dbError?.message, variant: "destructive" })
-      // TODO: Delete from storage if DB insert fails
-      return null
-    }
-
-    const { data: publicUrlData } = supabase.storage.from("project-files").getPublicUrl(filePath)
-
-    const newTrayImage: AppBoxItem = {
-      ...newImage,
-      id: newImage.id,
-      imageUrl: publicUrlData.publicUrl,
-      inUse: false, // New images start in tray
-      // map other fields
-      rowSpan: newImage.row_span || 1,
-      colSpan: newImage.col_span || 1,
-      position: -1, // Indicates it's in tray for client-side logic
-    }
-    setTrayImages((prev) => [...prev, newTrayImage])
-    return newTrayImage
-  }
-
-  // TODO: Debounced save function for grid_config
   const saveGridConfig = useCallback(
     async (newConfig: GridConfig) => {
       setGridConfig(newConfig) // Optimistic update
@@ -212,196 +91,484 @@ export default function GridEditorComponent({ initialProject, initialImages }: G
         .update({ grid_config: newConfig, updated_at: new Date().toISOString() })
         .eq("id", project.id)
       if (error) {
-        toast({ title: "Error saving grid", description: error.message, variant: "destructive" })
-        // Revert optimistic update if needed
+        toast({ title: "Error saving grid settings", description: error.message, variant: "destructive" })
+        // TODO: Revert optimistic update if needed
       }
     },
     [supabase, project.id],
   )
 
-  // TODO: Adapt all functions (addBox, deleteBox, moveBox, updateGridDimensions, etc.)
-  // to interact with Supabase:
-  // - Update `boxes` and `trayImages` state optimistically.
-  // - Then, make calls to `project_images` table (insert, update, delete).
-  // - Handle image uploads to Supabase Storage and update `storage_path`.
+  const addImageToDbAndTray = async (file: File): Promise<AppBoxItem | null> => {
+    const { data: userSession } = await supabase.auth.getUser()
+    if (!userSession.user) {
+      toast({ title: "Authentication Error", description: "User not authenticated.", variant: "destructive" })
+      return null
+    }
 
-  // Example: Adapting deleteBox
-  const deleteBox = useCallback(
+    const fileName = `${crypto.randomUUID()}-${file.name}`
+    const filePath = `${userSession.user.id}/${project.id}/images/${fileName}`
+
+    const { error: uploadError } = await supabase.storage.from("project-files").upload(filePath, file)
+    if (uploadError) {
+      toast({ title: "Storage Upload Failed", description: uploadError.message, variant: "destructive" })
+      return null
+    }
+
+    const { data: newImageRecord, error: dbError } = await supabase
+      .from("project_images")
+      .insert({
+        project_id: project.id,
+        storage_path: filePath,
+        original_filename: file.name,
+        file_size: file.size,
+        mime_type: file.type,
+        content: file.name.split(".")[0], // Default content from filename
+        // position, row_span, col_span are null for new tray images
+      })
+      .select()
+      .single()
+
+    if (dbError || !newImageRecord) {
+      toast({
+        title: "Database Error",
+        description: `Failed to save image metadata: ${dbError?.message}`,
+        variant: "destructive",
+      })
+      // Consider deleting from storage if DB insert fails
+      await supabase.storage.from("project-files").remove([filePath])
+      return null
+    }
+
+    const newTrayItem = transformDbImageToBoxItem(newImageRecord, true)
+    setTrayImages((prev) => [...prev, newTrayItem])
+    return newTrayItem
+  }
+
+  const handleAddImagesToTray = useCallback(
+    async (files: FileList) => {
+      if (files.length === 0) return
+      let successCount = 0
+      for (const file of Array.from(files)) {
+        const result = await addImageToDbAndTray(file)
+        if (result) successCount++
+      }
+      if (successCount > 0) {
+        toast({ title: `${successCount} image(s) added to tray.`, duration: TOAST_DURATION })
+      }
+    },
+    [supabase, project.id],
+  ) // Removed dependency on addImageToDbAndTray
+
+  const deleteBoxFromGrid = useCallback(
     async (boxId: string) => {
-      const boxToDelete = boxes.find((b) => b.id === boxId)
-      if (!boxToDelete) return
+      // Renamed from deleteBox to be specific
+      const boxToMove = boxes.find((b) => b.id === boxId)
+      if (!boxToMove) return
 
-      // Optimistic UI update
       setBoxes((prev) => prev.filter((b) => b.id !== boxId))
-      setTrayImages((prev) => prev.map((img) => (img.id === boxId ? { ...img, inUse: false, position: null } : img)))
+      setTrayImages((prev) => {
+        const existingIndex = prev.findIndex((img) => img.id === boxId)
+        if (existingIndex !== -1) {
+          return prev.map((img) =>
+            img.id === boxId ? { ...img, inUse: false, position: -1, row_span: 1, col_span: 1 } : img,
+          )
+        }
+        return [...prev, { ...boxToMove, inUse: false, position: -1, row_span: 1, col_span: 1 }]
+      })
       if (selectedBoxId === boxId) setSelectedBoxId(null)
 
-      // Supabase call: update position to null (moves to tray) or delete if configured
       const { error } = await supabase
         .from("project_images")
         .update({ position: null, row_span: null, col_span: null, placed_at: null })
         .eq("id", boxId)
 
       if (error) {
-        toast({ title: "Error removing image from grid", description: error.message, variant: "destructive" })
-        // Revert UI update if necessary
+        toast({ title: "Error moving image to tray", description: error.message, variant: "destructive" })
+        // TODO: Revert UI update
       } else {
         toast({ title: "Image moved to tray", duration: TOAST_DURATION })
       }
     },
-    [supabase, boxes, selectedBoxId],
+    [supabase, boxes, selectedBoxId, trayImages],
+  ) // Added trayImages
+
+  const handleRemoveImageFromTray = useCallback(
+    async (imageId: string) => {
+      const imageToRemove = trayImages.find((img) => img.id === imageId && !img.inUse)
+      if (!imageToRemove) {
+        toast({ title: "Cannot remove", description: "Image is in use or not found.", variant: "destructive" })
+        return
+      }
+
+      setTrayImages((prev) => prev.filter((img) => img.id !== imageId))
+
+      if (imageToRemove.storage_path) {
+        const { error: storageError } = await supabase.storage
+          .from("project-files")
+          .remove([imageToRemove.storage_path])
+        if (storageError) {
+          toast({
+            title: "Storage Error",
+            description: `Failed to delete image file: ${storageError.message}`,
+            variant: "destructive",
+          })
+          // TODO: Add back to trayImages if storage delete fails?
+        }
+      }
+      const { error: dbError } = await supabase.from("project_images").delete().eq("id", imageId)
+      if (dbError) {
+        toast({
+          title: "Database Error",
+          description: `Failed to delete image record: ${dbError.message}`,
+          variant: "destructive",
+        })
+        // TODO: Add back to trayImages if DB delete fails?
+      } else {
+        toast({ title: "Image removed from tray permanently.", duration: TOAST_DURATION })
+      }
+    },
+    [supabase, trayImages],
   )
 
-  // Placeholder for handleAddImagesToTray which now uses addImageToDbAndTray
-  const handleAddImagesToTray = useCallback(async (files: FileList) => {
-    if (files.length === 0) return
-    for (const file of Array.from(files)) {
-      // For simplicity, not showing temp URL handling here
-      await addImageToDbAndTray(file, "")
+  const handleClearTray = useCallback(async () => {
+    const imagesToDelete = trayImages.filter((img) => !img.inUse)
+    if (imagesToDelete.length === 0) {
+      toast({ title: "Tray is already empty.", duration: TOAST_DURATION })
+      return
     }
-    toast({ title: `${files.length} image(s) added to tray.`, duration: TOAST_DURATION })
-  }, []) // Removed addImageToDbAndTray from dependencies
 
-  // --- Keep existing useEffects for scaling, panning, keyboard shortcuts ---
-  // --- They operate on client-side state, which is now derived from Supabase data ---
-  // --- Ensure they use `gridConfig` fields (rows, columns, etc.) ---
+    const pathsToDelete = imagesToDelete.map((img) => img.storage_path).filter(Boolean) as string[]
+    const idsToDelete = imagesToDelete.map((img) => img.id)
 
-  useEffect(() => {
-    // Effect for fitting to view, scaling, etc.
-    // This will use gridConfig.width, gridConfig.height
-    // ... (similar to original grid-editor)
-  }, [gridConfig.width, gridConfig.height, manualZoom, gridConfig.rows, gridConfig.columns])
+    setTrayImages((prev) => prev.filter((img) => img.inUse)) // Optimistic UI update
 
-  // ... (other useEffects and handlers from original grid-editor.tsx)
-  // ... (They will need to be carefully reviewed and adapted)
-  // ... For example, updateGridDimensions should now call saveGridConfig.
-
-  const updateGridDimensions = useCallback(
-    (newRows, newColumns, newWidth, newHeight) => {
-      const newConfig = { ...gridConfig, rows: newRows, columns: newColumns, width: newWidth, height: newHeight }
-      saveGridConfig(newConfig) // This updates state and saves to DB
-    },
-    [gridConfig, saveGridConfig],
-  )
-
-  const updateGridGap = useCallback(
-    (newGap: number) => {
-      saveGridConfig({ ...gridConfig, gap: newGap })
-    },
-    [gridConfig, saveGridConfig],
-  )
-
-  const updateCornerRadius = useCallback(
-    (newRadius: number) => {
-      saveGridConfig({ ...gridConfig, cornerRadius: newRadius })
-    },
-    [gridConfig, saveGridConfig],
-  )
-
-  // Calculate cell dimensions based on current gridConfig
-  const cellDimensions = calculateCellDimensions(
-    gridConfig.width,
-    gridConfig.height,
-    gridConfig.columns,
-    gridConfig.rows,
-    gridConfig.gap,
-  )
-  const cellWidth = cellDimensions.width
-  const cellHeight = cellDimensions.height
+    if (pathsToDelete.length > 0) {
+      const { error: storageError } = await supabase.storage.from("project-files").remove(pathsToDelete)
+      if (storageError) {
+        toast({
+          title: "Storage Error",
+          description: `Some files might not have been deleted: ${storageError.message}`,
+          variant: "destructive",
+        })
+      }
+    }
+    const { error: dbError } = await supabase.from("project_images").delete().in("id", idsToDelete)
+    if (dbError) {
+      toast({
+        title: "Database Error",
+        description: `Some records might not have been deleted: ${dbError.message}`,
+        variant: "destructive",
+      })
+      // TODO: Revert UI if needed
+    } else {
+      toast({ title: "Tray cleared.", duration: TOAST_DURATION })
+    }
+  }, [supabase, trayImages])
 
   const handleAddColumn = useCallback(() => {
-    if (gridConfig.columns < 20) {
-      // Optional: Add a max column limit
-      const newConfig = { ...gridConfig, columns: gridConfig.columns + 1 }
-      saveGridConfig(newConfig)
-      // Update widthInputValue if you want to maintain aspect ratio or have specific logic
-      // For now, we'll let the user adjust width/height manually if needed after adding a column
+    if (gridConfig.columns < MAX_COLUMNS) {
+      saveGridConfig({ ...gridConfig, columns: gridConfig.columns + 1 })
     } else {
       toast({
         title: "Max columns reached",
-        description: "You cannot add more than 20 columns.",
-        variant: "default",
+        description: `Cannot add more than ${MAX_COLUMNS} columns.`,
         duration: TOAST_DURATION,
       })
     }
   }, [gridConfig, saveGridConfig])
 
   const handleRemoveColumn = useCallback(() => {
-    if (gridConfig.columns > 1) {
-      // Optional: Min column limit
-      const newConfig = { ...gridConfig, columns: gridConfig.columns - 1 }
-      saveGridConfig(newConfig)
+    if (gridConfig.columns > MIN_COLUMNS) {
+      saveGridConfig({ ...gridConfig, columns: gridConfig.columns - 1 })
+      // TODO: Add logic to handle images in the removed column (e.g., move to tray or warn user)
     } else {
       toast({
         title: "Min columns reached",
-        description: "You must have at least 1 column.",
-        variant: "default",
+        description: `Must have at least ${MIN_COLUMNS} column.`,
         duration: TOAST_DURATION,
       })
     }
   }, [gridConfig, saveGridConfig])
 
   const handleAddRow = useCallback(() => {
-    if (gridConfig.rows < 20) {
-      // Optional: Add a max row limit
-      const newConfig = { ...gridConfig, rows: gridConfig.rows + 1 }
-      saveGridConfig(newConfig)
+    if (gridConfig.rows < MAX_ROWS) {
+      saveGridConfig({ ...gridConfig, rows: gridConfig.rows + 1 })
     } else {
       toast({
         title: "Max rows reached",
-        description: "You cannot add more than 20 rows.",
-        variant: "default",
+        description: `Cannot add more than ${MAX_ROWS} rows.`,
         duration: TOAST_DURATION,
       })
     }
   }, [gridConfig, saveGridConfig])
 
   const handleRemoveRow = useCallback(() => {
-    if (gridConfig.rows > 1) {
-      // Optional: Min row limit
-      const newConfig = { ...gridConfig, rows: gridConfig.rows - 1 }
-      saveGridConfig(newConfig)
+    if (gridConfig.rows > MIN_ROWS) {
+      saveGridConfig({ ...gridConfig, rows: gridConfig.rows - 1 })
+      // TODO: Add logic to handle images in the removed row
     } else {
-      toast({
-        title: "Min rows reached",
-        description: "You must have at least 1 row.",
-        variant: "default",
-        duration: TOAST_DURATION,
-      })
+      toast({ title: "Min rows reached", description: `Must have at least ${MIN_ROWS} row.`, duration: TOAST_DURATION })
     }
   }, [gridConfig, saveGridConfig])
 
-  // The rest of the JSX structure will be similar, but props to child components
-  // will come from the new state variables (project, gridConfig, boxes, trayImages).
-  // Callbacks passed to children (e.g., deleteBox, addBox) will be the adapted Supabase versions.
+  const updateGridDimensionsValidated = useCallback(
+    (newWidthStr: string, newHeightStr: string) => {
+      const newWidth = Number.parseInt(newWidthStr, 10)
+      const newHeight = Number.parseInt(newHeightStr, 10)
+      let updated = false
+      const currentConfig = { ...gridConfig }
 
-  // This is a simplified render, the full JSX from original grid-editor needs to be here
-  // and adapted to use the new state structure.
-  if (!project) return <div>Loading project...</div>
+      if (!isNaN(newWidth) && newWidth >= MIN_DIMENSION && newWidth <= MAX_DIMENSION) {
+        currentConfig.width = newWidth
+        updated = true
+      } else {
+        setWidthInputValue(gridConfig.width.toString()) // Revert if invalid
+      }
+      if (!isNaN(newHeight) && newHeight >= MIN_DIMENSION && newHeight <= MAX_DIMENSION) {
+        currentConfig.height = newHeight
+        updated = true
+      } else {
+        setHeightInputValue(gridConfig.height.toString()) // Revert if invalid
+      }
+      if (updated) {
+        saveGridConfig(currentConfig)
+      }
+    },
+    [gridConfig, saveGridConfig],
+  )
 
-  // Filter out images that are in the tray for rendering on the grid
-  const gridDisplayBoxes = boxes.filter((b) => b.position !== null && b.position !== undefined && b.position !== -1)
-  const emptyPositionsArray = [] // TODO: Recalculate based on gridDisplayBoxes and gridConfig
+  const handleApplySizePreset = useCallback(
+    (preset: SizePreset) => {
+      const newConfig = { ...gridConfig, width: preset.width, height: preset.height }
+      // Optional: Adjust rows/columns based on aspect ratio if desired, or leave as is.
+      // For now, just updating dimensions.
+      saveGridConfig(newConfig)
+      setWidthInputValue(preset.width.toString())
+      setHeightInputValue(preset.height.toString())
+      toast({ title: `Applied preset: ${preset.name}`, duration: TOAST_DURATION })
+    },
+    [gridConfig, saveGridConfig],
+  )
+
+  const handleApplyTemplate = useCallback(
+    (template: LayoutTemplate) => {
+      const newConfig = {
+        ...gridConfig,
+        rows: template.rows,
+        columns: template.columns,
+        width: template.defaultWidth || gridConfig.width, // Use template width or keep current
+        height: template.defaultHeight || gridConfig.height, // Use template height or keep current
+      }
+      saveGridConfig(newConfig)
+      // TODO: Clear existing boxes or attempt to map them to the new template structure.
+      // For now, it just changes grid dimensions. User has to manually place images.
+      setBoxes([]) // Simple approach: clear existing boxes when applying a template
+      setTrayImages((prev) => prev.map((img) => ({ ...img, inUse: false, position: -1 }))) // Mark all as not in use
+      toast({
+        title: `Applied template: ${template.name}`,
+        description: "Existing images moved to tray.",
+        duration: TOAST_DURATION,
+      })
+    },
+    [gridConfig, saveGridConfig],
+  )
+
+  const calculateEmptyGridPositions = useCallback((): number[] => {
+    const totalSlots = gridConfig.rows * gridConfig.columns
+    const occupiedPositions = new Set(
+      boxes.map((box) => box.position).filter((pos) => pos !== null && pos !== undefined && pos !== -1),
+    )
+    const emptySlots: number[] = []
+    for (let i = 0; i < totalSlots; i++) {
+      if (!occupiedPositions.has(i)) {
+        emptySlots.push(i)
+      }
+    }
+    return emptySlots
+  }, [boxes, gridConfig.rows, gridConfig.columns])
+
+  const handlePlaceImageInFirstEmptySlot = useCallback(
+    async (imageId: string) => {
+      const emptyPositions = calculateEmptyGridPositions()
+      if (emptyPositions.length === 0) {
+        toast({ title: "Grid is full", description: "No empty slots to place the image.", variant: "destructive" })
+        return
+      }
+      const targetPosition = emptyPositions[0]
+      const imageToPlace = trayImages.find((img) => img.id === imageId)
+      if (!imageToPlace) return
+
+      const newBox: AppBoxItem = {
+        ...imageToPlace,
+        position: targetPosition,
+        row_span: 1, // Default spans
+        col_span: 1,
+        inUse: true,
+        placed_at: new Date().toISOString(),
+      }
+
+      setBoxes((prev) => [...prev, newBox])
+      setTrayImages((prev) =>
+        prev.map((img) => (img.id === imageId ? { ...img, inUse: true, position: targetPosition } : img)),
+      )
+
+      const { error } = await supabase
+        .from("project_images")
+        .update({
+          position: targetPosition,
+          row_span: 1,
+          col_span: 1,
+          placed_at: new Date().toISOString(),
+        })
+        .eq("id", imageId)
+
+      if (error) {
+        toast({ title: "Error placing image", description: error.message, variant: "destructive" })
+        // Revert UI
+        setBoxes((prev) => prev.filter((b) => b.id !== imageId))
+        setTrayImages((prev) => prev.map((img) => (img.id === imageId ? { ...img, inUse: false, position: -1 } : img)))
+      } else {
+        toast({ title: "Image placed on grid.", duration: TOAST_DURATION })
+      }
+    },
+    [calculateEmptyGridPositions, trayImages, supabase, boxes],
+  ) // Added boxes dependency
+
+  const handleReplaceImageInBox = useCallback(
+    async (boxIdToReplace: string, newImageFile: File) => {
+      const oldBoxData = boxes.find((b) => b.id === boxIdToReplace)
+      if (!oldBoxData || !oldBoxData.storage_path) {
+        toast({ title: "Error", description: "Original image data not found.", variant: "destructive" })
+        return
+      }
+      const oldStoragePath = oldBoxData.storage_path
+
+      // 1. Upload new image
+      const { data: userSession } = await supabase.auth.getUser()
+      if (!userSession.user) return
+      const newFileName = `${crypto.randomUUID()}-${newImageFile.name}`
+      const newFilePath = `${userSession.user.id}/${project.id}/images/${newFileName}`
+
+      const { error: uploadError } = await supabase.storage.from("project-files").upload(newFilePath, newImageFile)
+      if (uploadError) {
+        toast({ title: "Upload Failed", description: uploadError.message, variant: "destructive" })
+        return
+      }
+
+      // 2. Update database record
+      const { data: updatedImageRecord, error: dbError } = await supabase
+        .from("project_images")
+        .update({
+          storage_path: newFilePath,
+          original_filename: newImageFile.name,
+          file_size: newImageFile.size,
+          mime_type: newImageFile.type,
+          content: newImageFile.name.split(".")[0], // Update content
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", boxIdToReplace)
+        .select()
+        .single()
+
+      if (dbError || !updatedImageRecord) {
+        toast({ title: "DB Update Failed", description: dbError?.message, variant: "destructive" })
+        await supabase.storage.from("project-files").remove([newFilePath]) // Clean up new upload
+        return
+      }
+
+      // 3. Update local state
+      const updatedBoxItem = transformDbImageToBoxItem(updatedImageRecord, false)
+      setBoxes((prevBoxes) => prevBoxes.map((b) => (b.id === boxIdToReplace ? updatedBoxItem : b)))
+
+      // Also update in trayImages if it exists there (though it shouldn't be "inUse" false if it's on the grid)
+      setTrayImages((prevTray) =>
+        prevTray.map((ti) => (ti.id === boxIdToReplace ? { ...updatedBoxItem, inUse: true } : ti)),
+      )
+
+      // 4. Delete old image from storage
+      const { error: deleteOldError } = await supabase.storage.from("project-files").remove([oldStoragePath])
+      if (deleteOldError) {
+        toast({
+          title: "Storage Cleanup Warning",
+          description: `Failed to delete old image file: ${deleteOldError.message}`,
+          variant: "default",
+        })
+      }
+
+      toast({ title: "Image replaced successfully!", duration: TOAST_DURATION })
+      setSelectedBoxId(null)
+      setIsUploaderOpen(false)
+    },
+    [supabase, project.id, boxes, transformDbImageToBoxItem],
+  )
+
+  // Placeholder for complex DND operations
+  const handleMoveBoxOnGrid = (draggedId: string, targetPosition: number) => {
+    toast({
+      title: "Move Box (TODO)",
+      description: `Simulating move of ${draggedId} to ${targetPosition}. Full DND not yet implemented.`,
+      duration: TOAST_DURATION,
+    })
+    // Basic optimistic update for now, needs proper DND and Supabase integration
+    setBoxes((prevBoxes) => {
+      const boxToMove = prevBoxes.find((b) => b.id === draggedId)
+      if (!boxToMove) return prevBoxes
+      const otherBoxes = prevBoxes.filter((b) => b.id !== draggedId)
+      // This is a naive insert, real DND would handle swaps/collision
+      const newBoxes = [...otherBoxes]
+      newBoxes.splice(targetPosition, 0, { ...boxToMove, position: targetPosition })
+      // Re-index subsequent boxes if positions are dense
+      return newBoxes.map((b, idx) => ({ ...b, position: idx })) // Simplistic re-indexing
+    })
+  }
+  const handleSwapBoxesOnGrid = (sourceId: string, targetId: string) => {
+    toast({
+      title: "Swap Boxes (TODO)",
+      description: `Simulating swap of ${sourceId} and ${targetId}. Full DND not yet implemented.`,
+      duration: TOAST_DURATION,
+    })
+  }
+  const handleExpandBox = (boxId: string, newRowSpan: number, newColSpan: number) => {
+    toast({
+      title: "Expand Box (TODO)",
+      description: `Simulating expand of ${boxId}. Full resizing not yet implemented.`,
+      duration: TOAST_DURATION,
+    })
+    setBoxes((prevBoxes) =>
+      prevBoxes.map((b) => (b.id === boxId ? { ...b, row_span: newRowSpan, col_span: newColSpan } : b)),
+    )
+    // TODO: Update Supabase
+  }
+
+  const { cellWidth, cellHeight } = calculateCellDimensions(
+    gridConfig.width,
+    gridConfig.height,
+    gridConfig.columns,
+    gridConfig.rows,
+    gridConfig.gap,
+  )
+
+  if (!project) return <div>Loading project data...</div>
+
+  const gridDisplayBoxes = boxes
+    .filter((b) => b.position !== null && b.position !== undefined && b.position !== -1)
+    .sort((a, b) => (a.position || 0) - (b.position || 0)) // Ensure sorted by position
 
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="app-container" style={{ height: "calc(100vh - 64px)", display: "flex", flexDirection: "column" }}>
-        {" "}
-        {/* Adjust height for header */}
-        {/* Navigation needs to be part of (app)/layout.tsx or passed user session */}
-        {/* <Navigation ... /> */}
         <div
           className="app-content"
           style={{ display: "grid", gridTemplateColumns: "auto 1fr", gridTemplateRows: "auto 1fr", flexGrow: 1 }}
         >
-          <div className="corner"></div> {/* For Topbar/Sidebar alignment */}
+          <div className="corner bg-background"></div> {/* Top-left corner */}
           <Topbar
             columns={gridConfig.columns}
             gridWidth={gridConfig.width}
             gridHeight={gridConfig.height}
             gridGap={gridConfig.gap}
             cornerRadius={gridConfig.cornerRadius || 0}
-            scale={scale} // UI scale
+            scale={manualZoom ?? scale}
             manualZoom={manualZoom}
             widthInputValue={widthInputValue}
             heightInputValue={heightInputValue}
@@ -409,97 +576,88 @@ export default function GridEditorComponent({ initialProject, initialImages }: G
             onRemoveColumn={handleRemoveColumn}
             onWidthInputChange={setWidthInputValue}
             onHeightInputChange={setHeightInputValue}
-            onWidthInputBlur={() => {
-              const value = Number.parseInt(widthInputValue)
-              if (!isNaN(value) && value >= 100 && value <= 8000) {
-                // Example validation
-                updateGridDimensions(gridConfig.rows, gridConfig.columns, value, gridConfig.height)
-              } else {
-                setWidthInputValue(gridConfig.width.toString())
-              }
-            }}
-            onHeightInputBlur={() => {
-              const value = Number.parseInt(heightInputValue)
-              if (!isNaN(value) && value >= 100 && value <= 8000) {
-                updateGridDimensions(gridConfig.rows, gridConfig.columns, gridConfig.width, value)
-              } else {
-                setHeightInputValue(gridConfig.height.toString())
-              }
-            }}
-            // ... other Topbar props
-            applySizePreset={() => {
-              /* TODO */
-            }}
-            applyTemplate={() => {
-              /* TODO */
-            }}
-            updateGridGap={updateGridGap}
-            setCornerRadius={updateCornerRadius}
-            onZoomIn={() => setManualZoom((prev) => Math.min((prev ?? scale) + 0.1, 2))}
-            onZoomOut={() => setManualZoom((prev) => Math.max((prev ?? scale) - 0.1, 0.1))}
+            onWidthInputBlur={() => updateGridDimensionsValidated(widthInputValue, heightInputValue)}
+            onHeightInputBlur={() => updateGridDimensionsValidated(widthInputValue, heightInputValue)}
+            onWidthInputKeyDown={(e) =>
+              e.key === "Enter" && updateGridDimensionsValidated(widthInputValue, heightInputValue)
+            }
+            onHeightInputKeyDown={(e) =>
+              e.key === "Enter" && updateGridDimensionsValidated(widthInputValue, heightInputValue)
+            }
+            onInputClick={(e) => e.stopPropagation()}
+            applySizePreset={handleApplySizePreset}
+            applyTemplate={handleApplyTemplate}
+            updateGridGap={(newGap) => saveGridConfig({ ...gridConfig, gap: newGap })}
+            setCornerRadius={(newRadius) => saveGridConfig({ ...gridConfig, cornerRadius: newRadius })}
+            onZoomIn={() => setManualZoom((prev) => Math.min(Number.parseFloat(((prev ?? scale) + 0.1).toFixed(2)), 2))}
+            onZoomOut={() =>
+              setManualZoom((prev) => Math.max(Number.parseFloat(((prev ?? scale) - 0.1).toFixed(2)), 0.1))
+            }
             onFitToView={() => {
-              /* TODO */
+              /* TODO: Implement fit to view logic */ setScale(1)
+              setManualZoom(null)
+              setPanPosition({ x: 0, y: 0 })
+              toast({ title: "Fit to View (TODO)" })
             }}
-            onResetZoom={() => setManualZoom(null)} // Resets to auto-scale
+            onResetZoom={() => {
+              setScale(1)
+              setManualZoom(null)
+              setPanPosition({ x: 0, y: 0 })
+            }}
             boxesLength={gridDisplayBoxes.length}
           />
           <Sidebar rows={gridConfig.rows} onAddRow={handleAddRow} onRemoveRow={handleRemoveRow} />
           <div
             ref={canvasContainerRef}
-            className="canvas-container"
-            style={{ overflow: "auto", position: "relative", background: "#f0f0f0", gridColumn: "2", gridRow: "2" }}
-            // onMouseDown, onMouseMove etc. for panning
+            className="canvas-container bg-gray-200" // Changed background for visibility
+            style={{ overflow: "auto", position: "relative", gridColumn: "2", gridRow: "2" }}
+            // TODO: Add panning event handlers (onMouseDown, onMouseMove, onMouseUp, onWheel for zoom)
           >
             <div
               ref={gridWrapperRef}
               className="grid-wrapper"
-              style={{ position: "absolute", left: panPosition.x, top: panPosition.y }}
+              style={{ position: "absolute", left: panPosition.x, top: panPosition.y, cursor: "grab" }} // Added cursor
             >
               <div
-                className="grid-container"
+                className="grid-container bg-white shadow-lg" // Added shadow
                 ref={gridContainerRef}
                 style={{
                   display: "grid",
-                  gridTemplateRows: `repeat(${gridConfig.rows}, 1fr)`,
-                  gridTemplateColumns: `repeat(${gridConfig.columns}, minmax(30px, 1fr))`,
+                  gridTemplateRows: `repeat(${gridConfig.rows}, ${cellHeight}px)`, // Use calculated cellHeight
+                  gridTemplateColumns: `repeat(${gridConfig.columns}, ${cellWidth}px)`, // Use calculated cellWidth
                   gap: `${gridConfig.gap}px`,
-                  padding: "20px",
-                  backgroundColor: "#ffffff",
-                  borderRadius: `${gridConfig.cornerRadius || 0}px`,
+                  padding: "0px", // Padding can affect calculations, consider removing or accounting for it
                   width: `${gridConfig.width}px`,
                   height: `${gridConfig.height}px`,
                   transform: `scale(${manualZoom ?? scale})`,
                   transformOrigin: "0 0",
-                  boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)",
+                  // borderRadius: `${gridConfig.cornerRadius || 0}px`, // Apply to boxes instead if gap > 0
+                  // onClick to deselect box if clicking on grid background
+                  onClick: (e) => {
+                    if (e.target === gridContainerRef.current) setSelectedBoxId(null)
+                  },
                 }}
-                // onClick for deselecting
               >
-                {/* Render EmptyCells, TemplateCells, and Boxes */}
-                {/* This logic needs to be carefully adapted from original grid-editor */}
                 {gridDisplayBoxes.map((box) => (
                   <Box
                     key={box.id}
                     id={box.id}
-                    index={box.position!} // Asserting position is not null for display boxes
+                    index={box.position!}
                     content={box.content || ""}
                     color={box.color || "bg-gray-100"}
                     imageUrl={box.imageUrl}
                     rowSpan={box.row_span || 1}
                     colSpan={box.col_span || 1}
                     totalColumns={gridConfig.columns}
-                    moveBox={() => {
-                      /* TODO */
-                    }}
-                    deleteBox={deleteBox} // Use adapted deleteBox
-                    expandBox={() => {
-                      /* TODO */
-                    }}
-                    swapBoxes={() => {
-                      /* TODO */
-                    }}
+                    moveBox={handleMoveBoxOnGrid}
+                    deleteBox={deleteBoxFromGrid}
+                    expandBox={handleExpandBox}
+                    swapBoxes={handleSwapBoxesOnGrid}
                     onChangeImage={(id) => {
                       setSelectedBoxId(id)
+                      setUploadTargetPosition(null) // Not adding to empty cell, but replacing
                       setIsUploaderOpen(true)
+                      setIsMultiUpload(false)
                     }}
                     isSelected={selectedBoxId === box.id}
                     onSelect={setSelectedBoxId}
@@ -509,81 +667,72 @@ export default function GridEditorComponent({ initialProject, initialImages }: G
                     scale={manualZoom ?? scale}
                   />
                 ))}
+                {/* TODO: Render EmptyCell components for drag targets if needed, or handle drop on grid-container */}
               </div>
             </div>
           </div>
         </div>
         <PhotoTray
-          images={trayImages.filter((img) => !img.inUse)} // Show only unused images in tray
-          onAddToGrid={(imageId) => {
-            /* TODO: Implement adding from tray to grid */
-          }}
-          onRemoveFromTray={async (imageId) => {
-            // TODO: Delete from DB and storage
-            setTrayImages((prev) => prev.filter((img) => img.id !== imageId))
-            await supabase.from("project_images").delete().eq("id", imageId)
-            // Also delete from storage
-            const imgToDelete = trayImages.find((img) => img.id === imageId)
-            if (imgToDelete?.storage_path) {
-              await supabase.storage.from("project-files").remove([imgToDelete.storage_path])
-            }
-          }}
-          onClearTray={async () => {
-            // TODO: Delete all tray images from DB and storage
-            const pathsToDelete = trayImages
-              .filter((img) => !img.inUse && img.storage_path)
-              .map((img) => img.storage_path)
-            if (pathsToDelete.length > 0) {
-              await supabase.storage.from("project-files").remove(pathsToDelete)
-            }
-            await supabase.from("project_images").delete().eq("project_id", project.id).is("position", null)
-            setTrayImages((prev) => prev.filter((img) => img.inUse))
-          }}
-          onAddImages={handleAddImagesToTray} // Use adapted handler
+          images={trayImages.filter((img) => !img.inUse)}
+          onAddToGrid={handlePlaceImageInFirstEmptySlot}
+          onRemoveFromTray={handleRemoveImageFromTray}
+          onClearTray={handleClearTray}
+          onAddImages={handleAddImagesToTray}
           onPlaceAll={() => {
-            /* TODO */
+            /* TODO */ toast({ title: "Place All (TODO)" })
           }}
-          deleteBox={deleteBox} // This might be confusing here, PhotoTray usually doesn't delete grid boxes
+          deleteBox={deleteBoxFromGrid} // This prop might be misnamed if it's for tray images; consider onRemoveFromTray
         />
         {isUploaderOpen && (
           <ImageUploader
             isOpen={isUploaderOpen}
-            onClose={() => setIsUploaderOpen(false)}
+            onClose={() => {
+              setIsUploaderOpen(false)
+              setSelectedBoxId(null)
+              setUploadTargetPosition(null)
+            }}
             onImageSelect={async (imageUrlOrFile) => {
-              // ImageUploader needs to handle File objects
               setIsUploaderOpen(false)
               if (typeof imageUrlOrFile === "string") {
-                // URL input
-                // TODO: Handle adding by URL (download then upload, or link directly if allowed)
-              } else {
-                // File input
+                toast({
+                  title: "URL Upload (TODO)",
+                  description: "Uploading from URL is not yet implemented.",
+                  variant: "default",
+                })
+              } else if (imageUrlOrFile instanceof File) {
                 if (selectedBoxId) {
                   // Replacing an existing image
-                  const boxToUpdate = boxes.find((b) => b.id === selectedBoxId)
-                  // TODO: Delete old image from storage
-                  // Upload new image, update project_images record
-                } else if (uploadPosition !== null) {
-                  // Adding to empty cell
-                  // Upload new image, create project_images record with position
+                  await handleReplaceImageInBox(selectedBoxId, imageUrlOrFile)
+                } else if (uploadTargetPosition !== null) {
+                  // Adding to a specific empty cell (future TODO)
+                  toast({
+                    title: "Add to Cell (TODO)",
+                    description: "Adding to specific empty cell not yet implemented. Adding to tray instead.",
+                    variant: "default",
+                  })
+                  await addImageToDbAndTray(imageUrlOrFile)
                 } else {
                   // Adding to tray
-                  await addImageToDbAndTray(imageUrlOrFile as File, "")
+                  await addImageToDbAndTray(imageUrlOrFile)
                 }
               }
               setSelectedBoxId(null)
-              setUploadPosition(null)
+              setUploadTargetPosition(null)
             }}
-            // ... other ImageUploader props
             currentImageUrl={selectedBoxId ? boxes.find((b) => b.id === selectedBoxId)?.imageUrl || "" : ""}
-            isNewImage={uploadPosition !== null || !selectedBoxId}
+            isNewImage={!selectedBoxId || uploadTargetPosition !== null}
             isMultiUpload={isMultiUpload}
             onMultiImageSelect={async (files) => {
-              // Assuming this now returns File[]
               setIsUploaderOpen(false)
+              let successCount = 0
               for (const file of files) {
-                await addImageToDbAndTray(file, "")
+                const result = await addImageToDbAndTray(file)
+                if (result) successCount++
               }
-              toast({ title: `${files.length} images added to tray.` })
+              if (successCount > 0) {
+                toast({ title: `${successCount} images added to tray.` })
+              }
+              setUploadTargetPosition(null)
             }}
           />
         )}
