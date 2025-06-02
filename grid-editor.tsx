@@ -309,6 +309,68 @@ export default function GridEditorComponent({ initialProject, initialImages }: G
   const cellWidth = cellDimensions.width
   const cellHeight = cellDimensions.height
 
+  const handleAddColumn = useCallback(() => {
+    if (gridConfig.columns < 20) {
+      // Optional: Add a max column limit
+      const newConfig = { ...gridConfig, columns: gridConfig.columns + 1 }
+      saveGridConfig(newConfig)
+      // Update widthInputValue if you want to maintain aspect ratio or have specific logic
+      // For now, we'll let the user adjust width/height manually if needed after adding a column
+    } else {
+      toast({
+        title: "Max columns reached",
+        description: "You cannot add more than 20 columns.",
+        variant: "default",
+        duration: TOAST_DURATION,
+      })
+    }
+  }, [gridConfig, saveGridConfig])
+
+  const handleRemoveColumn = useCallback(() => {
+    if (gridConfig.columns > 1) {
+      // Optional: Min column limit
+      const newConfig = { ...gridConfig, columns: gridConfig.columns - 1 }
+      saveGridConfig(newConfig)
+    } else {
+      toast({
+        title: "Min columns reached",
+        description: "You must have at least 1 column.",
+        variant: "default",
+        duration: TOAST_DURATION,
+      })
+    }
+  }, [gridConfig, saveGridConfig])
+
+  const handleAddRow = useCallback(() => {
+    if (gridConfig.rows < 20) {
+      // Optional: Add a max row limit
+      const newConfig = { ...gridConfig, rows: gridConfig.rows + 1 }
+      saveGridConfig(newConfig)
+    } else {
+      toast({
+        title: "Max rows reached",
+        description: "You cannot add more than 20 rows.",
+        variant: "default",
+        duration: TOAST_DURATION,
+      })
+    }
+  }, [gridConfig, saveGridConfig])
+
+  const handleRemoveRow = useCallback(() => {
+    if (gridConfig.rows > 1) {
+      // Optional: Min row limit
+      const newConfig = { ...gridConfig, rows: gridConfig.rows - 1 }
+      saveGridConfig(newConfig)
+    } else {
+      toast({
+        title: "Min rows reached",
+        description: "You must have at least 1 row.",
+        variant: "default",
+        duration: TOAST_DURATION,
+      })
+    }
+  }, [gridConfig, saveGridConfig])
+
   // The rest of the JSX structure will be similar, but props to child components
   // will come from the new state variables (project, gridConfig, boxes, trayImages).
   // Callbacks passed to children (e.g., deleteBox, addBox) will be the adapted Supabase versions.
@@ -343,12 +405,8 @@ export default function GridEditorComponent({ initialProject, initialImages }: G
             manualZoom={manualZoom}
             widthInputValue={widthInputValue}
             heightInputValue={heightInputValue}
-            onAddColumn={() => {
-              /* TODO: Implement addColumn with Supabase */
-            }}
-            onRemoveColumn={() => {
-              /* TODO: Implement removeColumn with Supabase */
-            }}
+            onAddColumn={handleAddColumn}
+            onRemoveColumn={handleRemoveColumn}
             onWidthInputChange={setWidthInputValue}
             onHeightInputChange={setHeightInputValue}
             onWidthInputBlur={() => {
@@ -385,15 +443,7 @@ export default function GridEditorComponent({ initialProject, initialImages }: G
             onResetZoom={() => setManualZoom(null)} // Resets to auto-scale
             boxesLength={gridDisplayBoxes.length}
           />
-          <Sidebar
-            rows={gridConfig.rows}
-            onAddRow={() => {
-              /* TODO: Implement addRow with Supabase */
-            }}
-            onRemoveRow={() => {
-              /* TODO: Implement removeRow with Supabase */
-            }}
-          />
+          <Sidebar rows={gridConfig.rows} onAddRow={handleAddRow} onRemoveRow={handleRemoveRow} />
           <div
             ref={canvasContainerRef}
             className="canvas-container"
