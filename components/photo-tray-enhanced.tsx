@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useRef, useEffect, memo } from "react"
 import { Button } from "@/components/ui/button"
 import { ChevronLeft, ChevronRight, Trash2, Upload, ImageIcon } from "lucide-react"
@@ -10,31 +9,27 @@ import { cn } from "@/lib/utils"
 import { TrayImage } from "./tray-image"
 import { useDrop } from "react-dnd"
 import { toast } from "@/components/ui/use-toast"
+import { useTrayImages } from "@/hooks/use-tray-images"
 
-interface PhotoTrayProps {
-  images: Array<{ id: string; url: string; inUse: boolean; content?: string }>
+interface PhotoTrayEnhancedProps {
   onAddToGrid: (imageId: string) => void
-  onRemoveFromTray: (imageId: string) => void
-  onClearTray: () => void
-  onAddImages: (files: FileList) => void
   onPlaceAll: () => void
   deleteBox: (boxId: string) => void
 }
 
-export const PhotoTray = memo(function PhotoTray({
-  images,
+export const PhotoTrayEnhanced = memo(function PhotoTrayEnhanced({
   onAddToGrid,
-  onRemoveFromTray,
-  onClearTray,
-  onAddImages,
   onPlaceAll,
   deleteBox,
-}: PhotoTrayProps) {
+}: PhotoTrayEnhancedProps) {
   const [isExpanded, setIsExpanded] = useState(true)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const { trayImages, isLoading, error, addImageToTray, updateImageUsage, removeImageFromTray, clearTray } =
+    useTrayImages()
 
   // Set up drop target for boxes
   const [{ isOver }, drop] = useDrop(
@@ -48,7 +43,6 @@ export const PhotoTray = memo(function PhotoTray({
             description: "The image has been moved from the grid to your photo tray",
             duration: TOAST_DURATION,
           })
-          // Ensure tray is expanded when an image is dropped into it
           setIsExpanded(true)
           return { handled: true }
         }
@@ -67,12 +61,11 @@ export const PhotoTray = memo(function PhotoTray({
 
       const { scrollLeft, scrollWidth, clientWidth } = scrollContainerRef.current
       setCanScrollLeft(scrollLeft > 0)
-      setCanScrollRight(scrollLeft < scrollWidth - clientWidth - 10) // 10px buffer
+      setCanScrollRight(scrollLeft < scrollWidth - clientWidth - 10)
     }
 
     checkScroll()
 
-    // Add event listener for scroll
     const scrollContainer = scrollContainerRef.current
     if (scrollContainer) {
       scrollContainer.addEventListener("scroll", checkScroll)
@@ -85,13 +78,13 @@ export const PhotoTray = memo(function PhotoTray({
         window.removeEventListener("resize", checkScroll)
       }
     }
-  }, [images])
+  }, [trayImages])
 
   // Handle scroll buttons
   const handleScroll = (direction: "left" | "right") => {
     if (!scrollContainerRef.current) return
 
-    const scrollAmount = 200 // Scroll by 200px
+    const scrollAmount = 200
     const currentScroll = scrollContainerRef.current.scrollLeft
 
     scrollContainerRef.current.scrollTo({
@@ -100,77 +93,105 @@ export const PhotoTray = memo(function PhotoTray({
     })
   }
 
-  // Handle file upload - this is the function we're reusing
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle file upload
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      onAddImages(e.target.files)
-      e.target.value = ""
-      // Ensure tray stays expanded when adding images
-      setIsExpanded(true)
-    }
-  }
+      const files = Array.from(e.target.files)
 
-  // Handle download
-  const handleDownload = (url: string) => {
-    const link = document.createElement("a")
-    link.href = url
-    link.download = `image-${Date.now()}.jpg`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+      for (const file of files) {
+        if (file.type.startsWith("image/")) {
+          await addImageToTray(file)
+        }
+      }
+
+      e.target.value = ""
+      setIsExpanded(true)
+
+      toast({
+        title: "Images added to tray",
+        description: `Added ${files.length} image${files.length !== 1 ? "s" : ""} to your photo tray`,
+        duration: TOAST_DURATION,
+      })
+    }
   }
 
   // Handle drag events for file upload
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
     e.stopPropagation()
-    // Expand the tray when dragging over
     if (!isExpanded) {
       setIsExpanded(true)
     }
   }
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
     e.stopPropagation()
 
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      onAddImages(e.dataTransfer.files)
-      // Ensure tray stays expanded when dropping files
+      const files = Array.from(e.dataTransfer.files)
+
+      for (const file of files) {
+        if (file.type.startsWith("image/")) {
+          await addImageToTray(file)
+        }
+      }
+
       setIsExpanded(true)
+
+      toast({
+        title: "Images added to tray",
+        description: `Added ${files.length} image${files.length !== 1 ? "s" : ""} to your photo tray`,
+        duration: TOAST_DURATION,
+      })
     }
   }
 
-  // Handle empty area click to open file picker - reusing the same approach
+  // Handle empty area click to open file picker
   const handleEmptyAreaClick = (e: React.MouseEvent) => {
-    e.stopPropagation() // Prevent event bubbling
+    e.stopPropagation()
     if (fileInputRef.current) {
       fileInputRef.current.click()
     }
   }
 
-  // Wrapper function for onAddToGrid to ensure tray stays expanded
-  const handleAddToGrid = (imageId: string) => {
+  // Wrapper function for onAddToGrid
+  const handleAddToGrid = async (imageId: string) => {
+    await updateImageUsage(imageId, true)
     onAddToGrid(imageId)
-    // Ensure tray stays expanded when adding an image to grid
     setIsExpanded(true)
   }
 
-  // Wrapper function for onPlaceAll to ensure tray stays expanded
+  // Wrapper function for removing from tray
+  const handleRemoveFromTray = async (imageId: string) => {
+    await removeImageFromTray(imageId)
+  }
+
+  // Wrapper function for onPlaceAll
   const handlePlaceAll = (e: React.MouseEvent) => {
     e.stopPropagation()
     onPlaceAll()
-    // Ensure tray stays expanded when placing all images
     setIsExpanded(true)
   }
 
+  // Handle clear tray
+  const handleClearTray = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    await clearTray()
+    toast({
+      title: "Tray cleared",
+      description: "All images have been removed from your photo tray",
+      duration: TOAST_DURATION,
+    })
+  }
+
   // Count of images in use
-  const inUseCount = images.filter((img) => img.inUse).length
-  const unusedCount = images.length - inUseCount
+  const inUseCount = trayImages.filter((img) => img.inUse).length
+  const unusedCount = trayImages.length - inUseCount
 
   return (
     <div className={`photo-tray-container ${!isExpanded ? "collapsed" : ""}`}>
-      {/* Tray header - always visible */}
+      {/* Tray header */}
       <div
         className="photo-tray-header cursor-pointer select-none"
         onClick={(e) => {
@@ -184,7 +205,7 @@ export const PhotoTray = memo(function PhotoTray({
             <span className="ml-2 text-sm font-medium">Photo Tray</span>
           </div>
           <span className="text-xs text-gray-500">
-            {images.length} image{images.length !== 1 ? "s" : ""}
+            {trayImages.length} image{trayImages.length !== 1 ? "s" : ""}
             {inUseCount > 0 && ` (${inUseCount} in use)`}
           </span>
         </div>
@@ -193,11 +214,8 @@ export const PhotoTray = memo(function PhotoTray({
             variant="outline"
             size="sm"
             className="text-xs h-7"
-            onClick={(e) => {
-              e.stopPropagation()
-              handlePlaceAll(e)
-            }}
-            disabled={unusedCount === 0}
+            onClick={handlePlaceAll}
+            disabled={unusedCount === 0 || isLoading}
           >
             Place All{unusedCount > 0 ? ` (${unusedCount})` : ""}
           </Button>
@@ -210,6 +228,7 @@ export const PhotoTray = memo(function PhotoTray({
               e.stopPropagation()
               fileInputRef.current?.click()
             }}
+            disabled={isLoading}
           >
             <Upload className="h-3.5 w-3.5 mr-1" />
             Add Images
@@ -222,16 +241,8 @@ export const PhotoTray = memo(function PhotoTray({
             accept="image/*"
             className="hidden"
           />
-          {images.length > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation()
-                onClearTray()
-              }}
-              className="text-xs"
-            >
+          {trayImages.length > 0 && (
+            <Button variant="ghost" size="sm" onClick={handleClearTray} className="text-xs" disabled={isLoading}>
               <Trash2 className="h-3.5 w-3.5 mr-1" />
               Clear All
             </Button>
@@ -239,7 +250,7 @@ export const PhotoTray = memo(function PhotoTray({
         </div>
       </div>
 
-      {/* Tray content - always rendered but with height 0 when collapsed */}
+      {/* Tray content */}
       <div
         ref={drop}
         className={`photo-tray-content ${!isExpanded ? "collapsed" : ""}`}
@@ -248,7 +259,7 @@ export const PhotoTray = memo(function PhotoTray({
       >
         <div className={cn("photo-tray-dropzone", isOver && "bg-green-50 border-green-300 ring-2 ring-green-500")}>
           {/* Scroll buttons */}
-          {images.length > 0 && canScrollLeft && (
+          {trayImages.length > 0 && canScrollLeft && (
             <Button
               variant="ghost"
               size="icon"
@@ -262,7 +273,7 @@ export const PhotoTray = memo(function PhotoTray({
             </Button>
           )}
 
-          {images.length > 0 && canScrollRight && (
+          {trayImages.length > 0 && canScrollRight && (
             <Button
               variant="ghost"
               size="icon"
@@ -277,15 +288,30 @@ export const PhotoTray = memo(function PhotoTray({
           )}
 
           {/* Image container */}
-          {images.length > 0 ? (
+          {isLoading ? (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-sm text-gray-500">Loading images...</p>
+            </div>
+          ) : error ? (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-sm text-red-500">{error}</p>
+            </div>
+          ) : trayImages.length > 0 ? (
             <div ref={scrollContainerRef} className="flex gap-3 overflow-x-auto py-2 px-4 hide-scrollbar h-full">
-              {images.map((image) => (
+              {trayImages.map((image) => (
                 <TrayImage
                   key={image.id}
                   image={image}
-                  onAddToGrid={handleAddToGrid} // Use the wrapper function
-                  onRemoveFromTray={onRemoveFromTray}
-                  onDownload={handleDownload}
+                  onAddToGrid={handleAddToGrid}
+                  onRemoveFromTray={handleRemoveFromTray}
+                  onDownload={(url) => {
+                    const link = document.createElement("a")
+                    link.href = url
+                    link.download = `image-${Date.now()}.jpg`
+                    document.body.appendChild(link)
+                    link.click()
+                    document.body.removeChild(link)
+                  }}
                 />
               ))}
             </div>
@@ -303,41 +329,42 @@ export const PhotoTray = memo(function PhotoTray({
           )}
         </div>
       </div>
+
       <style jsx global>{`
-      .photo-tray-container {
-        position: relative;
-        border-top: 1px solid #e5e7eb;
-        background-color: white;
-        z-index: 10;
-      }
-      .photo-tray-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0.5rem 1rem;
-        height: 40px;
-      }
-      .photo-tray-content {
-        padding-top: 0.5rem;
-        padding-bottom: 0.5rem;
-        height: 120px;
-        transition: height 0.3s ease, padding 0.3s ease;
-        overflow: hidden;
-      }
-      .photo-tray-content.collapsed {
-        height: 0;
-        padding: 0;
-        overflow: hidden;
-      }
-      .photo-tray-dropzone {
-        position: relative;
-        height: 100%;
-        border: 2px dashed #e5e7eb;
-        border-radius: 0.5rem;
-        margin: 0 1rem;
-        transition: all 0.2s ease;
-      }
-    `}</style>
+        .photo-tray-container {
+          position: relative;
+          border-top: 1px solid #e5e7eb;
+          background-color: white;
+          z-index: 10;
+        }
+        .photo-tray-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 0.5rem 1rem;
+          height: 40px;
+        }
+        .photo-tray-content {
+          padding-top: 0.5rem;
+          padding-bottom: 0.5rem;
+          height: 120px;
+          transition: height 0.3s ease, padding 0.3s ease;
+          overflow: hidden;
+        }
+        .photo-tray-content.collapsed {
+          height: 0;
+          padding: 0;
+          overflow: hidden;
+        }
+        .photo-tray-dropzone {
+          position: relative;
+          height: 100%;
+          border: 2px dashed #e5e7eb;
+          border-radius: 0.5rem;
+          margin: 0 1rem;
+          transition: all 0.2s ease;
+        }
+      `}</style>
     </div>
   )
 })

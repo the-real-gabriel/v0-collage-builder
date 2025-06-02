@@ -1,5 +1,5 @@
 "use client"
-import { getRandomColor, calculateCellDimensions, isValidImageUrl } from "@/utils/grid-utils"
+import { getRandomColor, calculateCellDimensions } from "@/utils/grid-utils"
 
 import type React from "react"
 
@@ -11,7 +11,7 @@ import { EmptyCell } from "@/components/empty-cell"
 import { ImageUploader } from "@/image-uploader"
 import { toast } from "@/components/ui/use-toast"
 import { Navigation } from "@/components/layout/navigation"
-import { PhotoTray } from "@/components/photo-tray"
+// import { PhotoTray } from "@/components/photo-tray"
 import { LAYOUT_TEMPLATES } from "@/layout-templates"
 import { TOAST_DURATION } from "@/constants"
 
@@ -25,6 +25,11 @@ import type { SizePreset } from "@/size-presets"
 // Import the new components
 import { Topbar } from "@/components/topbar"
 import { Sidebar } from "@/components/sidebar"
+
+// Import the necessary dependencies
+import { useAuth } from "@/context/auth-context"
+import type { CollageData } from "@/hooks/use-collage-data"
+import { PhotoTrayEnhanced } from "@/components/photo-tray-enhanced"
 
 // Box interface
 interface BoxItem {
@@ -67,6 +72,8 @@ interface NavigationProps {
   }
   onAddImages: (files: FileList) => void
   emptyCount: number
+  collageId?: string
+  collageName: string
 }
 
 // Interface for panning state
@@ -75,7 +82,16 @@ interface PanPosition {
   y: number
 }
 
-export default function GridEditor() {
+interface GridEditorProps {
+  initialCollage?: CollageData
+}
+
+// Update the GridEditor component to accept initialCollage
+export default function GridEditor({ initialCollage }: GridEditorProps) {
+  // Add these state variables
+  const [collageId, setCollageId] = useState<string | undefined>(initialCollage?.id)
+  const [collageName, setCollageName] = useState<string>(initialCollage?.name || "Untitled Collage")
+  const { user } = useAuth()
   const [rows, setRows] = useState(2)
   const [columns, setColumns] = useState(2)
   const [gridWidth, setGridWidth] = useState(800)
@@ -90,7 +106,7 @@ export default function GridEditor() {
   const [templatePlaceholders, setTemplatePlaceholders] = useState<TemplatePlaceholder[]>([])
   const [scale, setScale] = useState(1) // Scale factor for the grid
   const [manualZoom, setManualZoom] = useState<number | null>(null) // Manual zoom override
-  const [trayImages, setTrayImages] = useState<Array<{ id: string; url: string; inUse: boolean; content?: string }>>([])
+  // const [trayImages, setTrayImages] = useState<Array<{ id: string; url: string; inUse: boolean; content?: string }>>([])
   const [widthInputValue, setWidthInputValue] = useState(gridWidth.toString())
   const [heightInputValue, setHeightInputValue] = useState(gridHeight.toString())
   // Add state for rounded corners
@@ -102,6 +118,10 @@ export default function GridEditor() {
   const [panPosition, setPanPosition] = useState<PanPosition>({ x: 0, y: 0 })
   const [initialPanPosition, setInitialPanPosition] = useState<PanPosition>({ x: 0, y: 0 })
 
+  // Add state for space key tracking
+  const [isSpacePressed, setIsSpacePressed] = useState(false)
+  const [cursorOverGrid, setCursorOverGrid] = useState(false)
+
   // Add a state to track if panning is possible
   const [canPan, setCanPan] = useState(false)
 
@@ -109,6 +129,31 @@ export default function GridEditor() {
   const gridWrapperRef = useRef<HTMLDivElement>(null)
   const canvasContainerRef = useRef<HTMLDivElement>(null)
   const lastAppliedTemplate = useRef<LayoutTemplate | null>(null)
+
+  // Initialize with initialCollage data if provided
+  useEffect(() => {
+    if (initialCollage) {
+      setRows(initialCollage.rows)
+      setColumns(initialCollage.columns)
+      setGridWidth(initialCollage.gridWidth)
+      setGridHeight(initialCollage.gridHeight)
+      setGridGap(initialCollage.gridGap)
+      setCornerRadius(initialCollage.cornerRadius)
+
+      // Initialize boxes from saved data
+      const loadedBoxes = initialCollage.boxes.map((box) => ({
+        id: box.id,
+        position: box.position,
+        rowSpan: box.rowSpan,
+        colSpan: box.colSpan,
+        content: box.content || "",
+        imageUrl: box.imageUrl || "",
+        color: box.color || getRandomColor(),
+      }))
+
+      setBoxes(loadedBoxes)
+    }
+  }, [initialCollage])
 
   // Calculate and update scale factor when grid dimensions or viewport size changes
   useEffect(() => {
@@ -187,9 +232,16 @@ export default function GridEditor() {
     }
   }, [gridWidth, gridHeight, manualZoom, rows, columns])
 
-  // Handle keyboard events for deleting selected box
+  // Handle keyboard events for space key and deleting selected box
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Handle space key for panning
+      if (e.code === "Space" && !isSpacePressed) {
+        e.preventDefault() // Prevent page scroll
+        setIsSpacePressed(true)
+      }
+
+      // Handle delete/backspace for selected box
       if (selectedBoxId && (e.key === "Delete" || e.key === "Backspace")) {
         deleteBox(selectedBoxId)
         setSelectedBoxId(null)
@@ -203,11 +255,20 @@ export default function GridEditor() {
       }
     }
 
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        setIsSpacePressed(false)
+      }
+    }
+
     window.addEventListener("keydown", handleKeyDown)
+    window.addEventListener("keyup", handleKeyUp)
+
     return () => {
       window.removeEventListener("keydown", handleKeyDown)
+      window.removeEventListener("keyup", handleKeyUp)
     }
-  }, [selectedBoxId])
+  }, [selectedBoxId, isSpacePressed])
 
   // Set grid gap and corner radius as CSS variables for consistent styling
   useEffect(() => {
@@ -765,32 +826,32 @@ export default function GridEditor() {
   )
 
   // Inside the GridEditor component, add the addImageToTray function before it's used
-  const addImageToTray = useCallback(
-    (imageUrl: string) => {
-      // Generate a unique ID for the new tray image
-      const newId = Date.now().toString() + Math.random().toString(36).substring(2, 9)
+  // const addImageToTray = useCallback(
+  //   (imageUrl: string) => {
+  //     // Generate a unique ID for the new tray image
+  //     const newId = Date.now().toString() + Math.random().toString(36).substring(2, 9)
 
-      // Check if the image is already in the tray
-      const existingImageIndex = trayImages.findIndex((img) => img.url === imageUrl)
+  //     // Check if the image is already in the tray
+  //     const existingImageIndex = trayImages.findIndex((img) => img.url === imageUrl)
 
-      if (existingImageIndex === -1) {
-        // If not in tray, add it
-        setTrayImages((prev) => [
-          ...prev,
-          {
-            id: newId,
-            url: imageUrl,
-            inUse: true, // Mark as in use since it's being added to the grid
-            content: `Image ${newId.slice(-3)}`,
-          },
-        ])
-      } else {
-        // If already in tray, mark as in use
-        setTrayImages((prev) => prev.map((img) => (img.url === imageUrl ? { ...img, inUse: true } : img)))
-      }
-    },
-    [trayImages],
-  )
+  //     if (existingImageIndex === -1) {
+  //       // If not in tray, add it
+  //       setTrayImages((prev) => [
+  //         ...prev,
+  //         {
+  //           id: newId,
+  //           url: imageUrl,
+  //           inUse: true, // Mark as in use since it's being added to the grid
+  //           content: `Image ${newId.slice(-3)}`,
+  //         },
+  //       ])
+  //     } else {
+  //       // If already in tray, mark as in use
+  //       setTrayImages((prev) => prev.map((img) => (img.url === imageUrl ? { ...img, inUse: true } : img)))
+  //     }
+  //   },
+  //   [trayImages],
+  // )
 
   // Then update the addBox function to remove the circular dependency
   const addBox = useCallback(
@@ -816,10 +877,10 @@ export default function GridEditor() {
       })
 
       // Only add the image to the tray if it's not already there
-      const imageExists = trayImages.some((img) => img.url === imageUrl)
-      if (!imageExists) {
-        addImageToTray(imageUrl)
-      }
+      // const imageExists = trayImages.some((img) => img.url === imageUrl)
+      // if (!imageExists) {
+      //   addImageToTray(imageUrl)
+      // }
 
       setBoxes((prevBoxes) => {
         const newId = Date.now().toString() + Math.random().toString(36).substring(2, 9)
@@ -841,11 +902,11 @@ export default function GridEditor() {
       }
 
       // Mark the image as in use in the tray if it exists there
-      setTrayImages((prevTrayImages) => {
-        return prevTrayImages.map((img) => (img.url === imageUrl ? { ...img, inUse: true } : img))
-      })
+      // setTrayImages((prevTrayImages) => {
+      //   return prevTrayImages.map((img) => (img.url === imageUrl ? { ...img, inUse: true } : img))
+      // })
     },
-    [templatePlaceholders, getOccupiedPositions, addImageToTray, trayImages, columns],
+    [templatePlaceholders, getOccupiedPositions, columns],
   )
 
   // Function to update grid dimensions with debouncing for smoother updates
@@ -906,29 +967,29 @@ export default function GridEditor() {
       // Find the box before deleting it
       const boxToDelete = boxes.find((box) => box.id === id)
 
-      if (boxToDelete) {
-        // Add the image to the tray
-        setTrayImages((prevTrayImages) => {
-          // Check if this image is already in the tray
-          const existingIndex = prevTrayImages.findIndex((img) => img.url === boxToDelete.imageUrl)
+      // if (boxToDelete) {
+      //   // Add the image to the tray
+      //   setTrayImages((prevTrayImages) => {
+      //     // Check if this image is already in the tray
+      //     const existingIndex = prevTrayImages.findIndex((img) => img.url === boxToDelete.imageUrl)
 
-          if (existingIndex !== -1) {
-            // Update existing tray image
-            return prevTrayImages.map((img) => (img.url === boxToDelete.imageUrl ? { ...img, inUse: false } : img))
-          } else {
-            // Add new tray image
-            return [
-              ...prevTrayImages,
-              {
-                id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
-                url: boxToDelete.imageUrl,
-                inUse: false,
-                content: boxToDelete.content,
-              },
-            ]
-          }
-        })
-      }
+      //     if (existingIndex !== -1) {
+      //       // Update existing tray image
+      //       return prevTrayImages.map((img) => (img.url === boxToDelete.imageUrl ? { ...img, inUse: false } : img))
+      //     } else {
+      //       // Add new tray image
+      //       return [
+      //         ...prevTrayImages,
+      //         {
+      //           id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
+      //           url: boxToDelete.imageUrl,
+      //           inUse: false,
+      //           content: boxToDelete.content,
+      //         },
+      //       ]
+      //     }
+      //   })
+      // }
 
       // Remove the box from the grid
       setBoxes((prevBoxes) => prevBoxes.filter((box) => box.id !== id))
@@ -940,208 +1001,178 @@ export default function GridEditor() {
   )
 
   // Add image from tray to grid
-  const addImageFromTray = useCallback(
-    (imageId: string) => {
-      // Find the image in the tray
-      const trayImage = trayImages.find((img) => img.id === imageId)
-      if (!trayImage) return
+  // const addImageFromTray = useCallback(
+  //   (imageId: string) => {
+  //     // Find the image in the tray
+  //     const trayImage = trayImages.find((img) => img.id === imageId)
+  //     if (!trayImage) return
 
-      // Check if there are any template placeholders
-      if (templatePlaceholders.length > 0) {
-        // Use the first template placeholder
-        const placeholder = templatePlaceholders[0]
-        addBox(placeholder.position, trayImage.url)
+  //     // Check if there are any template placeholders
+  //     if (templatePlaceholders.length > 0) {
+  //       // Use the first template placeholder
+  //       const placeholder = templatePlaceholders[0]
+  //       addBox(placeholder.position, trayImage.url)
 
-        // Mark the image as in use
-        setTrayImages((prevTrayImages) =>
-          prevTrayImages.map((img) => (img.id === imageId ? { ...img, inUse: true } : img)),
-        )
+  //       // Mark the image as in use
+  //       setTrayImages((prevTrayImages) =>
+  //         prevTrayImages.map((img) => (img.id === imageId ? { ...img, inUse: true } : img)),
+  //       )
 
-        toast({
-          title: "Image added to template",
-          description: "Image added to the template placeholder",
-          duration: TOAST_DURATION,
-        })
-        return
-      }
+  //       toast({
+  //         title: "Image added to template",
+  //         description: "Image added to the template placeholder",
+  //         duration: TOAST_DURATION,
+  //       })
+  //       return
+  //     }
 
-      // If no template placeholders, find the first empty position
-      const emptyPositionsArray = emptyPositions()
-      if (emptyPositionsArray.length === 0) {
-        toast({
-          title: "No empty cells",
-          description: "There are no empty cells to add the image to. Remove an image or add a new cell first.",
-          variant: "destructive",
-          duration: TOAST_DURATION,
-        })
-        return
-      }
+  //     // If no template placeholders, find the first empty position
+  //     const emptyPositionsArray = emptyPositions()
+  //     if (emptyPositionsArray.length === 0) {
+  //       toast({
+  //         title: "No empty cells",
+  //         description: "There are no empty cells to add the image to. Remove an image or add a new cell first.",
+  //         variant: "destructive",
+  //         duration: TOAST_DURATION,
+  //       })
+  //       return
+  //     }
 
-      // Add the image to the grid
-      addBox(emptyPositionsArray[0], trayImage.url)
+  //     // Add the image to the grid
+  //     addBox(emptyPositionsArray[0], trayImage.url)
 
-      // Mark the image as in use
-      setTrayImages((prevTrayImages) =>
-        prevTrayImages.map((img) => (img.id === imageId ? { ...img, inUse: true } : img)),
-      )
+  //     // Mark the image as in use
+  //     setTrayImages((prevTrayImages) =>
+  //       prevTrayImages.map((img) => (img.id === imageId ? { ...img, inUse: true } : img)),
+  //     )
 
-      toast({
-        title: "Image added",
-        description: "Image added to the grid from your photo tray",
-        duration: TOAST_DURATION,
-      })
-    },
-    [trayImages, addBox, emptyPositions, toast, templatePlaceholders],
-  )
+  //     toast({
+  //       title: "Image added",
+  //       description: "Image added to the grid from your photo tray",
+  //       duration: TOAST_DURATION,
+  //       })
+  //   },
+  //   [trayImages, addBox, emptyPositions, toast, templatePlaceholders],
+  // )
 
   // Remove image from tray
-  const removeImageFromTray = useCallback(
-    (imageId: string) => {
-      setTrayImages((prevTrayImages) => prevTrayImages.filter((img) => img.id !== imageId))
+  // const removeImageFromTray = useCallback(
+  //   (imageId: string) => {
+  //     setTrayImages((prevTrayImages) => prevTrayImages.filter((img) => img.id !== imageId))
 
-      toast({
-        title: "Image removed",
-        description: "Image removed from your photo tray",
-        duration: TOAST_DURATION,
-      })
-    },
-    [toast],
-  )
+  //     toast({
+  //       title: "Image removed",
+  //       description: "Image removed from your photo tray",
+  //       duration: TOAST_DURATION,
+  //     })
+  //   },
+  //   [toast],
+  // )
 
   // Clear all images from tray
-  const clearTray = useCallback(() => {
-    setTrayImages([])
+  // const clearTray = useCallback(() => {
+  //   setTrayImages([])
 
-    toast({
-      title: "Tray cleared",
-      description: "All images have been removed from your photo tray",
-      duration: TOAST_DURATION,
-    })
-  }, [toast])
+  //   toast({
+  //     title: "Tray cleared",
+  //     description: "All images have been removed from your photo tray",
+  //     duration: TOAST_DURATION,
+  //   })
+  // }, [toast])
 
   // Process files for adding to tray
-  const handleAddImagesToTray = useCallback(
-    (files: FileList) => {
-      console.log("Processing files:", files.length)
+  // const handleAddImagesToTray = useCallback(
+  //   (files: FileList) => {
+  //     if (files.length === 0) return
 
-      if (files.length === 0) {
-        console.error("No files to process")
-        return
-      }
+  //     const processFiles = () => {
+  //       const newImages: Array<{ id: string; url: string; inUse: boolean; content?: string }> = []
+  //       let processed = 0
+  //       const totalFiles = files.length
 
-      // Create a more robust file processing function
-      const processFiles = () => {
-        const newImages: Array<{ id: string; url: string; inUse: boolean; content?: string }> = []
-        let processed = 0
-        const totalFiles = files.length
+  //       const processFile = (file: File) => {
+  //         if (!file.type.startsWith("image/")) {
+  //           processed++
+  //           checkCompletion()
+  //           return
+  //         }
 
-        const processFile = (file: File, index: number) => {
-          // Only process image files
-          if (!file.type.startsWith("image/")) {
-            console.warn(`File ${index} is not an image:`, file.type)
-            processed++
-            checkCompletion()
-            return
-          }
+  //         const reader = new FileReader()
 
-          console.log(`Processing file ${index}:`, file.name, file.type)
+  //         reader.onload = (e) => {
+  //           if (e.target?.result) {
+  //             const imageUrl = e.target.result as string
 
-          const reader = new FileReader()
+  //             if (isValidImageUrl(imageUrl)) {
+  //               const newId = Date.now().toString() + Math.random().toString(36).substring(2, 9) + processed
+  //               newImages.push({
+  //                 id: newId,
+  //                 url: imageUrl,
+  //                 inUse: false,
+  //                 content: `Image ${newId.slice(-3)}`,
+  //               })
+  //             }
+  //           }
 
-          reader.onload = (e) => {
-            console.log(`File ${index} loaded successfully`)
-            if (e.target?.result) {
-              const imageUrl = e.target.result as string
+  //           processed++
+  //           checkCompletion()
+  //         }
 
-              // Validate the image URL
-              if (isValidImageUrl(imageUrl)) {
-                const newId = Date.now().toString() + Math.random().toString(36).substring(2, 9) + processed
-                newImages.push({
-                  id: newId,
-                  url: imageUrl,
-                  inUse: false,
-                  content: `Image ${newId.slice(-3)}`,
-                })
-              } else {
-                console.error(`Invalid image URL for file ${index}`)
-              }
-            } else {
-              console.error(`File ${index} loaded but no result:`, e)
-            }
+  //         reader.onerror = () => {
+  //           processed++
+  //           checkCompletion()
+  //         }
 
-            processed++
-            checkCompletion()
-          }
+  //         try {
+  //           reader.readAsDataURL(file)
+  //         } catch (error) {
+  //           processed++
+  //           checkCompletion()
+  //         }
+  //       }
 
-          reader.onerror = (error) => {
-            console.error(`Error reading file ${index}:`, error)
-            processed++
-            checkCompletion()
-          }
+  //       const checkCompletion = () => {
+  //         if (processed === totalFiles) {
+  //           if (newImages.length > 0) {
+  //             setTrayImages((prev) => [...prev, ...newImages])
 
-          // Start reading the file
-          try {
-            reader.readAsDataURL(file)
-          } catch (error) {
-            console.error(`Exception reading file ${index}:`, error)
-            processed++
-            checkCompletion()
-          }
-        }
+  //             toast({
+  //               title: "Images added to tray",
+  //               description: `Added ${newImages.length} image${newImages.length !== 1 ? "s" : ""} to your photo tray`,
+  //               duration: TOAST_DURATION,
+  //             })
+  //           } else {
+  //             toast({
+  //               title: "No images added",
+  //               description: "No valid images were found in the selected files",
+  //               duration: TOAST_DURATION,
+  //             })
+  //           }
+  //         }
+  //       }
 
-        const checkCompletion = () => {
-          console.log(`Processed ${processed} of ${totalFiles} files`)
-          if (processed === totalFiles) {
-            if (newImages.length > 0) {
-              console.log(`Adding ${newImages.length} images to tray`)
-              setTrayImages((prev) => {
-                const updated = [...prev, ...newImages]
-                console.log("Updated tray images:", updated.length)
-                return updated
-              })
+  //       Array.from(files).forEach(processFile)
+  //     }
 
-              toast({
-                title: "Images added to tray",
-                description: `Added ${newImages.length} image${newImages.length !== 1 ? "s" : ""} to your photo tray`,
-                duration: TOAST_DURATION,
-              })
-            } else {
-              console.warn("No valid images were processed")
-              toast({
-                title: "No images added",
-                description: "No valid images were found in the selected files",
-                duration: TOAST_DURATION,
-              })
-            }
-          }
-        }
-
-        // Process each file
-        Array.from(files).forEach((file, index) => {
-          processFile(file, index)
-        })
-      }
-
-      // Execute the file processing
-      processFiles()
-    },
-    [toast],
-  )
+  //     processFiles()
+  //   },
+  //   [toast],
+  // )
 
   // Function to automatically place images from tray to grid
   const placeAllImages = useCallback(() => {
-    if (trayImages.length === 0) return
+    // if (trayImages.length === 0) return
 
-    // Get unused images from tray
-    const unusedImages = trayImages.filter((img) => !img.inUse)
-    if (unusedImages.length === 0) {
-      toast({
-        title: "No images to place",
-        description: "All images from your tray are already in use.",
-        duration: 3000,
-      })
-      return
-    }
+    // // Get unused images from tray
+    // const unusedImages = trayImages.filter((img) => !img.inUse)
+    // if (unusedImages.length === 0) {
+    //   toast({
+    //     title: "No images to place",
+    //     description: "All images from your tray are already in use.",
+    //     duration: 3000,
+    //   })
+    //   return
+    // }
 
     // Get template placeholders first
     const templatePositions = templatePlaceholders.map((p) => p)
@@ -1150,67 +1181,67 @@ export default function GridEditor() {
     const emptyPositionsArray = emptyPositions()
 
     // If no positions available, show message
-    if (templatePositions.length === 0 && emptyPositionsArray.length === 0) {
-      toast({
-        title: "No empty cells available",
-        description: `Add more cells to place your ${unusedImages.length} unused image${unusedImages.length !== 1 ? "s" : ""}.`,
-        duration: 3000,
-      })
-      return
-    }
+    // if (templatePositions.length === 0 && emptyPositionsArray.length === 0) {
+    //   toast({
+    //     title: "No empty cells available",
+    //     description: `Add more cells to place your ${unusedImages.length} unused image${unusedImages.length !== 1 ? "s" : ""}.`,
+    //     duration: 3000,
+    //   })
+    //   return
+    // }
 
     // Determine how many images we can place
-    const imagesToPlace = unusedImages.slice(
-      0,
-      Math.min(unusedImages.length, templatePositions.length + emptyPositionsArray.length),
-    )
-    let placedCount = 0
+    // const imagesToPlace = unusedImages.slice(
+    //   0,
+    //   Math.min(unusedImages.length, templatePositions.length + emptyPositionsArray.length),
+    // )
+    // let placedCount = 0
 
-    // First fill template placeholders
-    for (let i = 0; i < Math.min(templatePositions.length, imagesToPlace.length); i++) {
-      const placeholder = templatePositions[i]
-      const image = imagesToPlace[i]
+    // // First fill template placeholders
+    // for (let i = 0; i < Math.min(templatePositions.length, imagesToPlace.length); i++) {
+    //   const placeholder = templatePositions[i]
+    //   const image = imagesToPlace[i]
 
-      addBox(placeholder.position, image.url)
+    //   addBox(placeholder.position, image.url)
 
-      // Mark as in use
-      setTrayImages((prev) => prev.map((img) => (img.id === image.id ? { ...img, inUse: true } : img)))
-      placedCount++
-    }
+    //   // Mark as in use
+    //   setTrayImages((prev) => prev.map((img) => (img.id === image.id ? { ...img, inUse: true } : img)))
+    //   placedCount++
+    // }
 
-    // Then fill empty positions with remaining images
-    if (placedCount < imagesToPlace.length) {
-      const remainingImages = imagesToPlace.slice(placedCount)
-      const availableEmptyPositions = emptyPositionsArray.slice(0, remainingImages.length)
+    // // Then fill empty positions with remaining images
+    // if (placedCount < imagesToPlace.length) {
+    //   const remainingImages = imagesToPlace.slice(placedCount)
+    //   const availableEmptyPositions = emptyPositionsArray.slice(0, remainingImages.length)
 
-      for (let i = 0; i < availableEmptyPositions.length; i++) {
-        const position = availableEmptyPositions[i]
-        const image = remainingImages[i]
+    //   for (let i = 0; i < availableEmptyPositions.length; i++) {
+    //     const position = availableEmptyPositions[i]
+    //     const image = remainingImages[i]
 
-        addBox(position, image.url)
+    //     addBox(position, image.url)
 
-        // Mark as in use
-        setTrayImages((prev) => prev.map((img) => (img.id === image.id ? { ...img, inUse: true } : img)))
-        placedCount++
-      }
-    }
+    //     // Mark as in use
+    //     setTrayImages((prev) => prev.map((img) => (img.id === image.id ? { ...img, inUse: true } : img)))
+    //     placedCount++
+    //   }
+    // }
 
-    // Show toast with results
-    const remainingCount = unusedImages.length - placedCount
+    // // Show toast with results
+    // const remainingCount = unusedImages.length - placedCount
 
-    if (remainingCount > 0) {
-      toast({
-        title: `${placedCount} image${placedCount !== 1 ? "s" : ""} placed`,
-        description: `${remainingCount} image${remainingCount !== 1 ? "s" : ""} couldn't fit. Add more cells to place the remaining images.`,
-        duration: 3000,
-      })
-    } else {
-      toast({
-        title: `${placedCount} image${placedCount !== 1 ? "s" : ""} placed successfully`,
-        duration: 2000,
-      })
-    }
-  }, [trayImages, emptyPositions, addBox, toast, templatePlaceholders, getOccupiedPositions])
+    // if (remainingCount > 0) {
+    //   toast({
+    //     title: `${placedCount} image${placedCount !== 1 ? "s" : ""} placed`,
+    //     description: `${remainingCount} image${remainingCount !== 1 ? "s" : ""} couldn't fit. Add more cells to place the remaining images.`,
+    //     duration: 3000,
+    //   })
+    // } else {
+    //   toast({
+    //     title: `${placedCount} image${placedCount !== 1 ? "s" : ""} placed successfully`,
+    //     duration: 2000,
+    //   })
+    // }
+  }, [emptyPositions, addBox, toast, templatePlaceholders, getOccupiedPositions])
 
   // Update the handleAddToEmptyCell function
   const handleAddToEmptyCell = useCallback(
@@ -1227,20 +1258,17 @@ export default function GridEditor() {
   )
 
   // Function to handle multi-image upload
-  const handleMultiUpload = useCallback(
-    (files?: FileList) => {
-      if (files) {
-        // If files are provided, add them directly to the tray
-        handleAddImagesToTray(files)
-      } else {
-        // Legacy behavior for backward compatibility
-        setUploadPosition(null)
-        setIsMultiUpload(true)
-        setIsUploaderOpen(true)
-      }
-    },
-    [handleAddImagesToTray],
-  )
+  const handleMultiUpload = useCallback((files?: FileList) => {
+    if (files) {
+      // If files are provided, add them directly to the tray
+      // handleAddImagesToTray(files)
+    } else {
+      // Legacy behavior for backward compatibility
+      setUploadPosition(null)
+      setIsMultiUpload(true)
+      setIsUploaderOpen(true)
+    }
+  }, [])
 
   // Function to handle image upload for the selected box
   const handleImageUpload = useCallback((id: string) => {
@@ -1391,31 +1419,31 @@ export default function GridEditor() {
         const remainingImageUrls = new Set(updatedBoxes.map((img) => img.imageUrl))
 
         // Add the extra images to the tray and update inUse status for all tray images
-        setTrayImages((prevTrayImages) => {
-          const newTrayImages = [...prevTrayImages]
+        // setTrayImages((prevTrayImages) => {
+        //   const newTrayImages = [...prevTrayImages]
 
-          // First, add any extra images to the tray if they're not already there
-          extraImages.forEach((image) => {
-            // Check if this image is already in the tray
-            const existingIndex = newTrayImages.findIndex((trayImage) => trayImage.url === image.imageUrl)
+        //   // First, add any extra images to the tray if they're not already there
+        //   extraImages.forEach((image) => {
+        //     // Check if this image is already in the tray
+        //     const existingIndex = newTrayImages.findIndex((trayImage) => trayImage.url === image.imageUrl)
 
-            if (existingIndex === -1) {
-              // Add to tray if not already there
-              newTrayImages.push({
-                id: image.id,
-                url: image.imageUrl,
-                inUse: false, // Mark as not in use since it's being removed from the grid
-                content: image.content,
-              })
-            }
-          })
+        //     if (existingIndex === -1) {
+        //       // Add to tray if not already there
+        //       newTrayImages.push({
+        //         id: image.id,
+        //         url: image.imageUrl,
+        //         inUse: false, // Mark as not in use since it's being removed from the grid
+        //         content: image.content,
+        //       })
+        //     }
+        //   })
 
-          // Now update the inUse status for all tray images based on what's in the grid
-          return newTrayImages.map((trayImage) => ({
-            ...trayImage,
-            inUse: remainingImageUrls.has(trayImage.url),
-          }))
-        })
+        //   // Now update the inUse status for all tray images based on what's in the grid
+        //   return newTrayImages.map((trayImage) => ({
+        //     ...trayImage,
+        //     inUse: remainingImageUrls.has(trayImage.url),
+        //   }))
+        // })
 
         toast({
           title: "Images moved to tray",
@@ -1427,12 +1455,12 @@ export default function GridEditor() {
         // for all tray images based on what's in the grid
         const remainingImageUrls = new Set(updatedBoxes.map((img) => img.imageUrl))
 
-        setTrayImages((prevTrayImages) => {
-          return prevTrayImages.map((trayImage) => ({
-            ...trayImage,
-            inUse: remainingImageUrls.has(trayImage.url),
-          }))
-        })
+        // setTrayImages((prevTrayImages) => {
+        //   return prevTrayImages.map((trayImage) => ({
+        //     ...trayImage,
+        //     inUse: remainingImageUrls.has(trayImage.url),
+        //   }))
+        // })
       }
 
       setBoxes(updatedBoxes)
@@ -1540,16 +1568,16 @@ export default function GridEditor() {
       updateBoxImage(selectedBoxId, imageUrl)
     } else {
       // If no position or box is selected, add to tray
-      const newId = Date.now().toString() + Math.random().toString(36).substring(2, 9)
-      setTrayImages((prev) => [
-        ...prev,
-        {
-          id: newId,
-          url: imageUrl,
-          inUse: false,
-          content: `Image ${newId.slice(-3)}`,
-        },
-      ])
+      // const newId = Date.now().toString() + Math.random().toString(36).substring(2, 9)
+      // setTrayImages((prev) => [
+      //   ...prev,
+      //   {
+      //     id: newId,
+      //     url: imageUrl,
+      //     inUse: false,
+      //     content: `Image ${newId.slice(-3)}`,
+      //   },
+      // ])
 
       toast({
         title: "Image added to tray",
@@ -1793,56 +1821,6 @@ export default function GridEditor() {
     position: "relative", // Ensure proper stacking context
   }
 
-  // Function to move an image from grid to tray
-  const moveToTray = useCallback(
-    (boxId: string) => {
-      console.log("Moving box to tray:", boxId)
-      // Find the box
-      const box = boxes.find((b) => b.id === boxId)
-      if (!box) {
-        console.warn("Box not found:", boxId)
-        return
-      }
-
-      // Add to tray if not already there
-      setTrayImages((prev) => {
-        // Check if this image is already in the tray
-        const existingIndex = prev.findIndex((img) => img.url === box.imageUrl)
-
-        if (existingIndex !== -1) {
-          // If it's already in the tray, just mark it as not in use
-          return prev.map((img) => (img.url === box.imageUrl ? { ...img, inUse: false } : img))
-        } else {
-          // Otherwise add it to the tray
-          return [
-            ...prev,
-            {
-              id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
-              url: box.imageUrl,
-              content: box.content,
-              inUse: false,
-            },
-          ]
-        }
-      })
-
-      // Remove from grid
-      setBoxes((prev) => prev.filter((b) => b.id !== boxId))
-
-      // If this was the selected box, clear selection
-      if (selectedBoxId === boxId) {
-        setSelectedBoxId(null)
-      }
-
-      toast({
-        title: "Image moved to tray",
-        description: "The image has been moved from the grid to your photo tray",
-        duration: TOAST_DURATION,
-      })
-    },
-    [boxes, selectedBoxId, toast],
-  )
-
   // Add this useEffect to check if panning is possible whenever relevant values change
   useEffect(() => {
     if (canvasContainerRef.current && gridWrapperRef.current) {
@@ -1876,13 +1854,31 @@ export default function GridEditor() {
   const cellWidth = cellDimensions.width
   const cellHeight = cellDimensions.height
 
-  // Pan handlers
-  // Update the mouse down handler to allow panning even at 100% zoom if the grid is larger than the viewport
+  // Determine if panning should be enabled based on cursor position and space key
+  const shouldEnablePanning = useCallback(
+    (e: React.MouseEvent | React.TouchEvent) => {
+      // If cursor is outside the grid (on canvas background), always allow panning
+      if (!cursorOverGrid) {
+        return true
+      }
+
+      // If cursor is over the grid, only allow panning when space is pressed
+      return isSpacePressed
+    },
+    [cursorOverGrid, isSpacePressed],
+  )
+
+  // Pan handlers with improved logic
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      // Allow panning if it's a left click, regardless of zoom level
-      if (e.button === 0 && gridWrapperRef.current && canvasContainerRef.current) {
-        // Check if the grid is larger than the viewport or if we're zoomed in
+      // Only handle left mouse button
+      if (e.button !== 0) return
+
+      // Check if panning should be enabled
+      if (!shouldEnablePanning(e)) return
+
+      if (gridWrapperRef.current && canvasContainerRef.current) {
+        // Check if the grid is larger than the viewport or if we're zoomed out
         const containerRect = canvasContainerRef.current.getBoundingClientRect()
         const gridRect = gridWrapperRef.current.getBoundingClientRect()
         const isGridLargerThanViewport = gridRect.width > containerRect.width || gridRect.height > containerRect.height
@@ -1903,7 +1899,7 @@ export default function GridEditor() {
         }
       }
     },
-    [scale, panPosition],
+    [scale, panPosition, shouldEnablePanning],
   )
 
   const handleMouseMove = useCallback(
@@ -1938,11 +1934,15 @@ export default function GridEditor() {
   }, [isPanning])
 
   // Touch event handlers for mobile devices
-  // Update the touch start handler similarly
   const handleTouchStart = useCallback(
     (e: React.TouchEvent) => {
-      if (e.touches.length === 1 && gridWrapperRef.current && canvasContainerRef.current) {
-        // Check if the grid is larger than the viewport or if we're zoomed in
+      if (e.touches.length !== 1) return
+
+      // Check if panning should be enabled
+      if (!shouldEnablePanning(e)) return
+
+      if (gridWrapperRef.current && canvasContainerRef.current) {
+        // Check if the grid is larger than the viewport or if we're zoomed out
         const containerRect = canvasContainerRef.current.getBoundingClientRect()
         const gridRect = gridWrapperRef.current.getBoundingClientRect()
         const isGridLargerThanViewport = gridRect.width > containerRect.width || gridRect.height > containerRect.height
@@ -1961,7 +1961,7 @@ export default function GridEditor() {
         }
       }
     },
-    [scale, panPosition],
+    [scale, panPosition, shouldEnablePanning],
   )
 
   const handleTouchMove = useCallback(
@@ -1993,6 +1993,37 @@ export default function GridEditor() {
     }
   }, [isPanning])
 
+  // Handle mouse enter/leave for grid to track cursor position
+  const handleGridMouseEnter = useCallback(() => {
+    setCursorOverGrid(true)
+  }, [])
+
+  const handleGridMouseLeave = useCallback(() => {
+    setCursorOverGrid(false)
+  }, [])
+
+  // Determine cursor style based on current state
+  const getCursorStyle = () => {
+    if (isPanning) return "grabbing"
+    if (cursorOverGrid && isSpacePressed) return "grab"
+    if (!cursorOverGrid && canPan) return "grab"
+    return "default"
+  }
+
+  // Modify the handleAddImages function to use Supabase Storage
+  const handleAddImages = async (files: FileList) => {
+    // The enhanced photo tray will handle this automatically
+    // Just show a toast for feedback
+    toast({
+      title: "Upload started",
+      description: "Images are being uploaded to your tray",
+      duration: TOAST_DURATION,
+    })
+  }
+
+  // Calculate the number of empty boxes
+  const emptyBoxCount = emptyPositionsArray.length + templatePlaceholders.length
+
   return (
     <DndProvider backend={HTML5Backend}>
       {/* Main app container using CSS Grid for layout */}
@@ -2022,13 +2053,7 @@ export default function GridEditor() {
     position: absolute; /* Add absolute positioning */
   }
   .canvas-container {
-    cursor: default;
-  }
-  .canvas-container.can-pan {
-    cursor: grab;
-  }
-  .canvas-container.panning {
-    cursor: grabbing !important;
+    cursor: ${getCursorStyle()};
   }
   .photo-tray-container {
     width: 100%;
@@ -2036,6 +2061,23 @@ export default function GridEditor() {
     border-top: 1px solid #e5e7eb;
     background-color: white;
     z-index: 10;
+  }
+  
+  /* Show space bar hint when hovering over grid */
+  .space-hint {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 12px;
+    z-index: 1000;
+    pointer-events: none;
+    opacity: ${cursorOverGrid && !isSpacePressed ? "1" : "0"};
+    transition: opacity 0.2s ease;
   }
 `}</style>
       {/* Main app container */}
@@ -2052,8 +2094,10 @@ export default function GridEditor() {
               gridGap,
               boxes,
             }}
-            onAddImages={handleAddImagesToTray}
-            emptyCount={emptyPositionsArray.length + templatePlaceholders.length}
+            onAddImages={handleAddImages}
+            emptyCount={emptyBoxCount}
+            collageId={collageId}
+            collageName={collageName}
           />
         </header>
 
@@ -2137,7 +2181,7 @@ export default function GridEditor() {
           {/* Canvas container - scrollable area for the grid */}
           <div
             ref={canvasContainerRef}
-            className={`canvas-container ${isPanning ? "panning" : ""} ${canPan ? "can-pan" : ""}`}
+            className="canvas-container"
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
@@ -2148,7 +2192,14 @@ export default function GridEditor() {
           >
             <div ref={gridWrapperRef} className="grid-wrapper">
               {/* Grid container */}
-              <div className="grid-container" ref={gridContainerRef} style={gridStyle} onClick={handleGridClick}>
+              <div
+                className="grid-container"
+                ref={gridContainerRef}
+                style={gridStyle}
+                onClick={handleGridClick}
+                onMouseEnter={handleGridMouseEnter}
+                onMouseLeave={handleGridMouseLeave}
+              >
                 {/* Empty cell placeholders with drop targets */}
                 {emptyPositionsArray.map((position) => (
                   <EmptyCell
@@ -2161,7 +2212,7 @@ export default function GridEditor() {
                     cellHeight={cellHeight}
                     scale={scale}
                     cornerRadius={cornerRadius}
-                    addToTray={addImageToTray}
+                    addToTray={() => {}}
                   />
                 ))}
 
@@ -2180,7 +2231,7 @@ export default function GridEditor() {
                     scale={scale}
                     cornerRadius={cornerRadius}
                     templateName={placeholder.templateName || ""}
-                    addToTray={addImageToTray}
+                    addToTray={() => {}}
                   />
                 ))}
 
@@ -2206,13 +2257,16 @@ export default function GridEditor() {
                     cellWidth={cellWidth}
                     cellHeight={cellHeight}
                     cornerRadius={cornerRadius}
-                    scale={scale} // Add this line to pass the scale
+                    scale={scale}
                   />
                 ))}
               </div>
             </div>
           </div>
         </div>
+
+        {/* Space bar hint */}
+        <div className="space-hint">Hold SPACE + drag to pan the canvas</div>
 
         {/* Image uploader dialog */}
         {isUploaderOpen && (
@@ -2228,12 +2282,11 @@ export default function GridEditor() {
         )}
 
         {/* Photo Tray - now part of the main layout flow */}
-        <PhotoTray
-          images={trayImages}
-          onAddToGrid={addImageFromTray}
-          onRemoveFromTray={removeImageFromTray}
-          onClearTray={clearTray}
-          onAddImages={handleAddImagesToTray}
+        <PhotoTrayEnhanced
+          onAddToGrid={(imageId) => {
+            // Find the image in tray and add to grid
+            // This will be handled by the enhanced component
+          }}
           onPlaceAll={placeAllImages}
           deleteBox={deleteBox}
         />

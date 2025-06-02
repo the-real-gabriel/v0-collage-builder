@@ -6,10 +6,7 @@
  * Calculate and format aspect ratio from width and height
  */
 export function calculateAspectRatio(width: number, height: number): string {
-  // Find the greatest common divisor (GCD)
-  const gcd = (a: number, b: number): number => {
-    return b === 0 ? a : gcd(b, a % b)
-  }
+  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b))
 
   const divisor = gcd(width, height)
   const simplifiedWidth = width / divisor
@@ -17,8 +14,7 @@ export function calculateAspectRatio(width: number, height: number): string {
 
   // If the simplified ratio has large numbers, return decimal format
   if (simplifiedWidth > 20 || simplifiedHeight > 20) {
-    const ratio = width / height
-    return ratio.toFixed(2) + ":1"
+    return (width / height).toFixed(2) + ":1"
   }
 
   return `${simplifiedWidth}:${simplifiedHeight}`
@@ -129,7 +125,7 @@ export function isWithinGridBounds(
   const startRow = Math.floor(position / columns)
   const startCol = position % columns
 
-  return startRow < rows && startCol < columns && startRow + rowSpan <= rows && startCol + colSpan <= columns
+  return startRow + rowSpan <= rows && startCol + colSpan <= columns
 }
 
 /**

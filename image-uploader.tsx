@@ -72,7 +72,6 @@ export function ImageUploader({
     }
   }, [isOpen, isMultiUpload])
 
-  // Handle file processing from both input change and drop events
   const handleFiles = (files: FileList) => {
     if (!files || files.length === 0) return
 
@@ -81,35 +80,34 @@ export function ImageUploader({
 
     const newImages: string[] = []
     let processed = 0
+    const totalFiles = files.length
 
-    // Process each file
-    Array.from(files).forEach((file, index) => {
+    Array.from(files).forEach((file) => {
       const reader = new FileReader()
 
       reader.onload = (event) => {
         if (event.target?.result) {
+          const result = event.target.result as string
+
           if (isMultiUpload) {
-            newImages.push(event.target.result as string)
+            newImages.push(result)
           } else {
-            setUploadedImages([event.target.result as string])
+            setUploadedImages([result])
           }
         }
 
         processed++
-        setUploadProgress(Math.round((processed / files.length) * 100))
+        setUploadProgress(Math.round((processed / totalFiles) * 100))
 
-        // When all files are processed
-        if (processed === files.length) {
+        if (processed === totalFiles) {
+          setIsUploading(false)
+
           if (isMultiUpload) {
-            // Append new images to existing ones instead of replacing
             setUploadedImages((prev) => [...prev, ...newImages])
-            setIsUploading(false)
-          } else {
-            // Auto-confirm for single uploads
-            setIsUploading(false)
+          } else if (uploadedImages.length > 0) {
             // Small delay to show the preview before auto-confirming
             setTimeout(() => {
-              onImageSelect(event.target?.result as string)
+              onImageSelect(uploadedImages[0])
             }, 300)
           }
         }

@@ -1,8 +1,9 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useRef } from "react"
+import { useRouter } from "next/navigation"
+import { useAuth } from "@/context/auth-context"
 import { Button } from "@/components/ui/button"
 import {
   CustomDialog,
@@ -11,9 +12,11 @@ import {
   CustomDialogTitle,
   CustomDialogTrigger,
 } from "@/components/custom-dialog"
-import { Menu, X, Download, Upload, HelpCircle } from "lucide-react"
+import { Menu, X, Download, Upload, HelpCircle, Save, Grid, LogOut } from "lucide-react"
 import { Instructions } from "@/instructions"
 import { ExportDialog } from "@/export-dialog"
+import { SaveCollageDialog } from "@/components/collage/save-dialog"
+import type { CollageData } from "@/hooks/use-collage-data"
 
 interface NavigationProps {
   gridRef: React.RefObject<HTMLDivElement>
@@ -27,13 +30,24 @@ interface NavigationProps {
   }
   onAddImages: (files: FileList) => void
   emptyCount: number
+  collageId?: string
+  collageName?: string
 }
 
-export function Navigation({ gridRef, gridData, onAddImages, emptyCount }: NavigationProps) {
+export function Navigation({
+  gridRef,
+  gridData,
+  onAddImages,
+  emptyCount,
+  collageId,
+  collageName = "Untitled Collage",
+}: NavigationProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isExportOpen, setIsExportOpen] = useState(false)
-
+  const [isSaveOpen, setIsSaveOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const router = useRouter()
+  const { user, signOut } = useAuth()
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     console.log("Navigation file input change event triggered")
@@ -45,6 +59,42 @@ export function Navigation({ gridRef, gridData, onAddImages, emptyCount }: Navig
     } else {
       console.warn("Navigation file input: No files selected")
     }
+  }
+
+  const handleSave = () => {
+    setIsSaveOpen(true)
+  }
+
+  const handleMyCollages = () => {
+    router.push("/my-collages")
+  }
+
+  const handleLogout = async () => {
+    await signOut()
+    router.push("/auth")
+  }
+
+  // Prepare collage data for saving
+  const collageData: CollageData = {
+    id: collageId,
+    name: collageName,
+    rows: gridData.rows,
+    columns: gridData.columns,
+    gridWidth: gridData.gridWidth,
+    gridHeight: gridData.gridHeight,
+    cellSize: 100, // Default value
+    gridGap: gridData.gridGap,
+    cornerRadius: 0, // Default value
+    isPublic: false,
+    boxes: gridData.boxes.map((box) => ({
+      id: box.id,
+      position: box.position,
+      rowSpan: box.rowSpan,
+      colSpan: box.colSpan,
+      content: box.content,
+      imageUrl: box.imageUrl,
+      color: box.color,
+    })),
   }
 
   return (
@@ -80,6 +130,21 @@ export function Navigation({ gridRef, gridData, onAddImages, emptyCount }: Navig
               className="hidden"
             />
 
+            <Button variant="outline" size="sm" className="flex items-center gap-2 btn-subtle h-8" onClick={handleSave}>
+              <Save className="h-3.5 w-3.5" />
+              <span>Save</span>
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2 btn-subtle h-8"
+              onClick={handleMyCollages}
+            >
+              <Grid className="h-3.5 w-3.5" />
+              <span>My Collages</span>
+            </Button>
+
             <CustomDialog>
               <CustomDialogTrigger asChild>
                 <Button variant="ghost" size="sm" className="flex items-center gap-2 btn-ghost h-8">
@@ -103,6 +168,11 @@ export function Navigation({ gridRef, gridData, onAddImages, emptyCount }: Navig
             >
               <Download className="h-3.5 w-3.5" />
               <span>Export</span>
+            </Button>
+
+            <Button variant="ghost" size="sm" className="flex items-center gap-2 btn-ghost h-8" onClick={handleLogout}>
+              <LogOut className="h-3.5 w-3.5" />
+              <span>Logout</span>
             </Button>
           </nav>
 
@@ -128,6 +198,32 @@ export function Navigation({ gridRef, gridData, onAddImages, emptyCount }: Navig
             >
               <Upload className="h-3.5 w-3.5 mr-2" />
               Add Images
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start btn-ghost"
+              onClick={() => {
+                setIsMenuOpen(false)
+                handleSave()
+              }}
+            >
+              <Save className="h-3.5 w-3.5 mr-2" />
+              Save
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start btn-ghost"
+              onClick={() => {
+                setIsMenuOpen(false)
+                handleMyCollages()
+              }}
+            >
+              <Grid className="h-3.5 w-3.5 mr-2" />
+              My Collages
             </Button>
 
             <CustomDialog>
@@ -162,6 +258,19 @@ export function Navigation({ gridRef, gridData, onAddImages, emptyCount }: Navig
               <Download className="h-3.5 w-3.5 mr-2" />
               Export
             </Button>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start btn-ghost text-red-600"
+              onClick={() => {
+                setIsMenuOpen(false)
+                handleLogout()
+              }}
+            >
+              <LogOut className="h-3.5 w-3.5 mr-2" />
+              Logout
+            </Button>
           </div>
         )}
       </div>
@@ -173,6 +282,11 @@ export function Navigation({ gridRef, gridData, onAddImages, emptyCount }: Navig
         gridRef={gridRef}
         gridData={gridData}
       />
+
+      {/* Save Dialog */}
+      {isSaveOpen && (
+        <SaveCollageDialog isOpen={isSaveOpen} onClose={() => setIsSaveOpen(false)} collageData={collageData} />
+      )}
     </header>
   )
 }

@@ -229,22 +229,11 @@ export const Box = memo(function Box({
 
   // Handle image error
   const handleImageError = () => {
-    console.error(`Failed to load image: ${imageUrl}`)
     setImageError(true)
   }
 
   // Use a placeholder or fallback for the image source
   const imageSrc = imageError ? "/placeholder.svg" : imageUrl || "/placeholder.svg"
-
-  const handleResizeTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    e.stopPropagation()
-    setIsResizing(true)
-  }
-
-  const handleRemove = (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation()
-    deleteBox(id)
-  }
 
   return (
     <div
