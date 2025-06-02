@@ -61,11 +61,12 @@ export function SaveCollageDialog({ isOpen, onClose, collageData }: SaveCollageD
 
       if (collageId) {
         onClose()
-        router.refresh()
-
-        // If this is a new collage, redirect to the edit page
         if (!collageData.id) {
-          router.push(`/edit/${collageId}`)
+          // If it's a new collage (collageData.id was undefined before saving)
+          router.push(`/edit/${collageId}`) // Navigate to the new edit page
+        } else {
+          // If it's an existing collage
+          router.refresh() // Refresh the current page's data (e.g., /edit/[id] or /my-collages)
         }
       }
     } catch (err: any) {

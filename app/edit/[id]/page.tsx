@@ -20,34 +20,56 @@ export default function EditCollagePage() {
 
   useEffect(() => {
     let isMounted = true
+    console.log(`EditCollagePage: useEffect triggered for collageId: ${collageId}. Mounted: ${isMounted}`)
 
     const fetchCollage = async () => {
       if (!collageId) {
-        setError("No collage ID provided")
-        setIsLoading(false)
+        console.log("EditCollagePage: No collage ID provided.")
+        if (isMounted) {
+          setError("No collage ID provided")
+          setIsLoading(false)
+        }
         return
       }
 
+      console.log(`EditCollagePage: Starting fetchCollage for ID: ${collageId}`)
       try {
-        setIsLoading(true)
-        setError(null)
-
+        if (isMounted) {
+          setIsLoading(true)
+          setError(null)
+        }
+        console.log(`EditCollagePage: Calling loadCollage for ID: ${collageId}`)
         const collageData = await loadCollage(collageId)
+        console.log(`EditCollagePage: loadCollage returned for ID: ${collageId}`, collageData)
 
-        if (!isMounted) return
+        if (!isMounted) {
+          console.log(`EditCollagePage: Component unmounted after loadCollage for ID: ${collageId}`)
+          return
+        }
 
         if (collageData) {
+          console.log(`EditCollagePage: Collage data found for ID: ${collageId}`)
           setCollage(collageData)
         } else {
-          setError("Collage not found or you don't have permission to view it")
+          console.log(`EditCollagePage: Collage data NOT found for ID: ${collageId}. Setting error.`)
+          // Error might be set by loadCollage hook, or we set a generic one here
+          setError((prevError) => prevError || "Collage not found or you don't have permission to view it.")
         }
       } catch (err: any) {
-        if (!isMounted) return
-        console.error("Failed to load collage:", err)
+        if (!isMounted) {
+          console.log(`EditCollagePage: Component unmounted during catch for ID: ${collageId}`)
+          return
+        }
+        console.error(`EditCollagePage: Error in fetchCollage for ID: ${collageId}`, err)
         setError(err.message || "Failed to load collage")
       } finally {
         if (isMounted) {
+          console.log(`EditCollagePage: fetchCollage finally block for ID: ${collageId}. Setting isLoading to false.`)
           setIsLoading(false)
+        } else {
+          console.log(
+            `EditCollagePage: Component unmounted, skipping final setIsLoading in fetchCollage for ID: ${collageId}`,
+          )
         }
       }
     }
@@ -55,6 +77,7 @@ export default function EditCollagePage() {
     fetchCollage()
 
     return () => {
+      console.log(`EditCollagePage: useEffect cleanup for collageId: ${collageId}. Setting isMounted to false.`)
       isMounted = false
     }
   }, [collageId, loadCollage])
