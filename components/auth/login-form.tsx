@@ -1,95 +1,55 @@
 "use client"
 
-import type React from "react"
-
-import { useState } from "react"
-import { useAuth } from "@/context/auth-context"
+import { useFormState, useFormStatus } from "react-dom"
+import { signInWithEmail } from "@/app/auth/actions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { AlertCircle } from "lucide-react"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import Link from "next/link"
 
-interface LoginFormProps {
-  onToggleForm: () => void
+function SubmitButton() {
+  const { pending } = useFormStatus()
+  return (
+    <Button type="submit" className="w-full" disabled={pending}>
+      {pending ? "Signing In..." : "Sign In"}
+    </Button>
+  )
 }
 
-export function LoginForm({ onToggleForm }: LoginFormProps) {
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [error, setError] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const { signIn } = useAuth()
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    setIsLoading(true)
-
-    try {
-      const { error } = await signIn(email, password)
-      if (error) {
-        setError(error.message || "Failed to sign in")
-      }
-    } catch (err: any) {
-      setError(err.message || "An unexpected error occurred")
-    } finally {
-      setIsLoading(false)
-    }
-  }
+export function LoginForm() {
+  const [state, formAction] = useFormState(signInWithEmail, null)
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-2 text-center">
-        <h1 className="text-3xl font-bold">Welcome back</h1>
-        <p className="text-gray-500">Enter your credentials to sign in to your account</p>
-      </div>
-
-      {error && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="email">Email</Label>
-          <Input
-            id="email"
-            type="email"
-            placeholder="name@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-        </div>
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="password">Password</Label>
+    <Card className="w-full max-w-sm">
+      <CardHeader>
+        <CardTitle className="text-2xl">Login</CardTitle>
+        <CardDescription>Enter your email below to login to your account.</CardDescription>
+      </CardHeader>
+      <form action={formAction}>
+        <CardContent className="grid gap-4">
+          <div className="grid gap-2">
+            <Label htmlFor="email">Email</Label>
+            <Input id="email" name="email" type="email" placeholder="m@example.com" required />
+            {state?.errors?.email && <p className="text-xs text-red-500">{state.errors.email[0]}</p>}
           </div>
-          <Input
-            id="password"
-            type="password"
-            placeholder="••••••••"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-        </div>
-        <Button type="submit" className="w-full" disabled={isLoading}>
-          {isLoading ? "Signing in..." : "Sign In"}
-        </Button>
+          <div className="grid gap-2">
+            <Label htmlFor="password">Password</Label>
+            <Input id="password" name="password" type="password" required />
+            {state?.errors?.password && <p className="text-xs text-red-500">{state.errors.password[0]}</p>}
+          </div>
+          {state?.message && !state.errors && <p className="text-sm text-red-500">{state.message}</p>}
+        </CardContent>
+        <CardFooter className="flex flex-col gap-4">
+          <SubmitButton />
+          <p className="text-xs text-center text-gray-600">
+            Don&apos;t have an account?{" "}
+            <Link href="/signup" className="underline">
+              Sign up
+            </Link>
+          </p>
+        </CardFooter>
       </form>
-
-      <div className="text-center">
-        <p className="text-sm text-gray-500">
-          Don&apos;t have an account?{" "}
-          <button onClick={onToggleForm} className="text-primary hover:underline">
-            Sign up
-          </button>
-        </p>
-      </div>
-    </div>
+    </Card>
   )
 }
