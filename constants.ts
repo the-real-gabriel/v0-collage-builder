@@ -1,23 +1,57 @@
-export const TOAST_DURATION = 3000
-
-export enum ItemTypes {
-  BOX = "box",
-  IMAGE = "image",
+// Item type for drag and drop
+export const ItemTypes = {
+  BOX: "box",
+  TRAY_IMAGE: "tray-image",
 }
 
-// Grid editor specific constants
-export const MAX_COLUMNS = 20
-export const MIN_COLUMNS = 1
-export const MAX_ROWS = 20
-export const MIN_ROWS = 1
-export const MAX_DIMENSION = 8000 // Max width/height in pixels for the grid itself
-export const MIN_DIMENSION = 100 // Min width/height in pixels for the grid itself
+// Toast duration in milliseconds
+export const TOAST_DURATION = 3000
 
-export const DEFAULT_GRID_WIDTH = 1200
-export const DEFAULT_GRID_HEIGHT = 800
-export const DEFAULT_COLUMNS = 4
-export const DEFAULT_ROWS = 3
-export const DEFAULT_GAP = 10
-export const DEFAULT_CORNER_RADIUS = 8
+// Sample stock images
+export const STOCK_IMAGES = [
+  "/placeholder.svg?key=dne7m",
+  "/abstract-geometric-pattern-2.png",
+  "/abstract-geometric-pattern-3.png",
+  "/abstract-geometric-pattern-4.png",
+  "/majestic-mountain-vista.png",
+  "/tranquil-beach-vista.png",
+  "/lush-forest-landscape.png",
+  "/desert-landscape.png",
+  "/vibrant-city-skyline.png",
+  "/busy-city-street.png",
+  "/vibrant-pasta-dish.png",
+  "/portrait-photography.png",
+]
 
-// You can add other constants here as needed
+// Grid dimensions
+export const GRID_DIMENSIONS = {
+  MIN_WIDTH: 400,
+  MAX_WIDTH: 2100,
+  MIN_HEIGHT: 300,
+  MAX_HEIGHT: 2100,
+  DEFAULT_WIDTH: 800,
+  DEFAULT_HEIGHT: 600,
+}
+
+// Cell dimensions
+export const CELL_DIMENSIONS = {
+  MIN_SIZE: 50,
+  MAX_SIZE: 200,
+  DEFAULT_SIZE: 100,
+}
+
+// Grid gap
+export const GRID_GAP = {
+  MIN: 0,
+  MAX: 30,
+  DEFAULT: 10,
+  STEP: 2,
+}
+
+// Corner radius
+export const CORNER_RADIUS = {
+  MIN: 0,
+  MAX: 20,
+  DEFAULT: 0,
+  STEP: 1,
+}
